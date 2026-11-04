@@ -1,0 +1,365 @@
+const jwt = require('jsonwebtoken');
+const User = require('../models/user.model');
+const RefreshToken = require('../models/refreshToken.model');
+
+// Parse expiration string or default
+const parseExpiresInToMs = (str, defaultMs) => {
+  if (!str) return defaultMs;
+  const match = str.match(/^(\d+)([smhd])$/);
+  if (!match) return defaultMs;
+  const val = parseInt(match[1], 10);
+  const unit = match[2];
+  if (unit === 's') return val * 1000;
+  if (unit === 'm') return val * 60 * 1000;
+  if (unit === 'h') return val * 60 * 60 * 1000;
+  if (unit === 'd') return val * 24 * 60 * 60 * 1000;
+  return defaultMs;
+};
+
+const ACCESS_EXPIRES_IN = process.env.JWT_ACCESS_EXPIRES_IN || '15m';
+const REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+const REFRESH_EXPIRES_IN_MS = parseExpiresInToMs(REFRESH_EXPIRES_IN, 7 * 24 * 60 * 60 * 1000);
+
+/**
+ * Generates an Access Token and a Refresh Token for a user.
+ */
+const generateTokens = (user) => {
+  const payload = {
+    id: user._id.toString(),
+    email: user.email,
+  };
+
+  const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, {
+    expiresIn: ACCESS_EXPIRES_IN,
+    algorithm: 'HS256',
+  });
+
+  const refreshToken = jwt.sign({ id: user._id.toString() }, process.env.JWT_REFRESH_SECRET, {
+    expiresIn: REFRESH_EXPIRES_IN,
+    algorithm: 'HS256',
+  });
+
+  return { accessToken, refreshToken };
+};
+
+/**
+ * Sets the Refresh Token as a secure, HTTP-only cookie.
+ */
+const setRefreshCookie = (res, token) => {
+  res.cookie('refreshToken', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: REFRESH_EXPIRES_IN_MS,
+    path: '/api/auth',
+  });
+};
+
+/**
+ * Clears the Refresh Token cookie.
+ */
+const clearRefreshCookie = (res) => {
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/api/auth',
+  });
+};
+
+/**
+ * POST /api/auth/register
+ * Registers a new user account.
+ */
+const register = async (req, res, next) => {
+  try {
+    const { username, email, password } = req.body;
+
+    // Check if user already exists
+    const existingUser = await User.findOne({
+      $or: [{ email: email.toLowerCase().trim() }, { username: username.trim() }],
+    });
+
+    if (existingUser) {
+      if (existingUser.email === email.toLowerCase().trim()) {
+        return res.status(409).json({
+          success: false,
+          message: 'An account with this email already exists',
+          code: 'EMAIL_ALREADY_EXISTS',
+        });
+      }
+      return res.status(409).json({
+        success: false,
+        message: 'Username is already taken',
+        code: 'USERNAME_ALREADY_EXISTS',
+      });
+    }
+
+    const newUser = await User.create({
+      username: username.trim(),
+      email: email.toLowerCase().trim(),
+      password,
+    });
+
+    const { accessToken, refreshToken } = generateTokens(newUser);
+
+    // Record refresh token in DB
+    const expiresAt = new Date(Date.now() + REFRESH_EXPIRES_IN_MS);
+    await RefreshToken.createToken(
+      newUser._id,
+      refreshToken,
+      req.headers['user-agent'] || 'Unknown Device',
+      req.ip || 'Unknown IP',
+      expiresAt
+    );
+
+    setRefreshCookie(res, refreshToken);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Account created successfully',
+      user: {
+        id: newUser._id,
+        username: newUser.username,
+        email: newUser.email,
+        profilePicture: newUser.profilePicture,
+        bio: newUser.bio,
+        isOnline: newUser.isOnline,
+        lastSeen: newUser.lastSeen,
+        createdAt: newUser.createdAt,
+      },
+      accessToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/login
+ * Authenticates user credentials and issues tokens.
+ */
+const login = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.findByCredentials(email, password);
+
+    const { accessToken, refreshToken } = generateTokens(user);
+
+    const expiresAt = new Date(Date.now() + REFRESH_EXPIRES_IN_MS);
+    await RefreshToken.createToken(
+      user._id,
+      refreshToken,
+      req.headers['user-agent'] || 'Unknown Device',
+      req.ip || 'Unknown IP',
+      expiresAt
+    );
+
+    setRefreshCookie(res, refreshToken);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logged in successfully',
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        profilePicture: user.profilePicture,
+        bio: user.bio,
+        isOnline: user.isOnline,
+        lastSeen: user.lastSeen,
+        createdAt: user.createdAt,
+      },
+      accessToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/logout
+ * Revokes refresh token and clears cookie.
+ */
+const logout = async (req, res, next) => {
+  try {
+    const token = req.cookies?.refreshToken || req.body?.refreshToken;
+
+    if (token) {
+      const tokenDoc = await RefreshToken.findByToken(token);
+      if (tokenDoc && !tokenDoc.isRevoked) {
+        await tokenDoc.revoke('User logout');
+      }
+    }
+
+    clearRefreshCookie(res);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/refresh
+ * Validates refresh token, detects reuse, and performs token rotation.
+ */
+const refresh = async (req, res, next) => {
+  try {
+    const token = req.cookies?.refreshToken || req.body?.refreshToken;
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Refresh token is required',
+        code: 'REFRESH_TOKEN_MISSING',
+      });
+    }
+
+    // First find if the token exists in DB (even if revoked)
+    const storedToken = await RefreshToken.findByToken(token);
+
+    if (!storedToken) {
+      clearRefreshCookie(res);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid refresh token',
+        code: 'INVALID_REFRESH_TOKEN',
+      });
+    }
+
+    // Token reuse detection: if token is already revoked, an attacker may be reusing it!
+    if (storedToken.isRevoked) {
+      // Invalidate all tokens for this user for security
+      await RefreshToken.updateMany(
+        { userId: storedToken.userId },
+        {
+          $set: {
+            isRevoked: true,
+            revokedAt: new Date(),
+            revokedReason: 'Token reuse attempt detected',
+          },
+        }
+      );
+
+      clearRefreshCookie(res);
+
+      return res.status(403).json({
+        success: false,
+        message: 'Security alert: Refresh token reuse detected. All sessions have been terminated. Please log in again.',
+        code: 'TOKEN_REUSE_DETECTED',
+      });
+    }
+
+    // Check expiration
+    if (storedToken.expiresAt < new Date()) {
+      clearRefreshCookie(res);
+      return res.status(401).json({
+        success: false,
+        message: 'Refresh token has expired',
+        code: 'REFRESH_TOKEN_EXPIRED',
+      });
+    }
+
+    // Verify JWT cryptographic signature
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET, {
+        algorithms: ['HS256'],
+      });
+    } catch {
+      await storedToken.revoke('JWT verification failed');
+      clearRefreshCookie(res);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid refresh token signature',
+        code: 'INVALID_REFRESH_TOKEN',
+      });
+    }
+
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      await storedToken.revoke('User not found');
+      clearRefreshCookie(res);
+      return res.status(401).json({
+        success: false,
+        message: 'User no longer exists',
+        code: 'USER_NOT_FOUND',
+      });
+    }
+
+    // Token rotation: Revoke current refresh token
+    await storedToken.revoke('Rotated on refresh');
+
+    // Issue new pair
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
+
+    // Save new refresh token
+    const newExpiresAt = new Date(Date.now() + REFRESH_EXPIRES_IN_MS);
+    await RefreshToken.createToken(
+      user._id,
+      newRefreshToken,
+      req.headers['user-agent'] || storedToken.deviceInfo,
+      req.ip || storedToken.ipAddress,
+      newExpiresAt
+    );
+
+    setRefreshCookie(res, newRefreshToken);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tokens refreshed successfully',
+      accessToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/auth/me
+ * Retrieves current authenticated user profile.
+ */
+const me = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        profilePicture: user.profilePicture,
+        bio: user.bio,
+        isOnline: user.isOnline,
+        lastSeen: user.lastSeen,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  register,
+  login,
+  logout,
+  refresh,
+  me,
+  generateTokens,
+  setRefreshCookie,
+  clearRefreshCookie,
+};
