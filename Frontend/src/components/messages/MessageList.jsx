@@ -96,7 +96,7 @@ export const MessageList = ({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-1"
+        className="min-h-0 flex-1 touch-pan-y overscroll-contain overflow-y-auto px-3 py-4 space-y-1 sm:px-6"
       >
         {/* Load More Button / Indicator */}
         {hasMore && (

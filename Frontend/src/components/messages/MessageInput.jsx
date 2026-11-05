@@ -270,7 +270,7 @@ export const MessageInput = ({
   const isUploading = uploadProgress !== null;
 
   return (
-    <div className="safe-area-bottom relative p-3 bg-white dark:bg-dark-header border-t border-gray-200 dark:border-gray-800 transition-colors">
+    <div className="safe-area-bottom sticky bottom-0 z-30 flex-shrink-0 border-t border-gray-200 bg-white p-3 transition-colors dark:border-gray-800 dark:bg-dark-header">
       {/* Reply Preview */}
       <ReplyPreview replyTo={replyTo} onCancel={onCancelReply} />
 

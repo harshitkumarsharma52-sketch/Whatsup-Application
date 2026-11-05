@@ -73,7 +73,7 @@ export const ChatArea = ({
   };
 
   return (
-    <div className="panel-enter flex-1 flex flex-col h-full bg-chat-bg dark:bg-dark-bg relative overflow-hidden">
+    <div className="panel-enter relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-chat-bg dark:bg-dark-bg">
       {/* Header */}
       <ChatHeader
         conversation={conversation}

@@ -11,6 +11,22 @@ export const Chat = () => {
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [viewingProfile, setViewingProfile] = useState(null);
 
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const syncViewportHeight = () => {
+      const height = viewport?.height || window.innerHeight;
+      document.documentElement.style.setProperty('--chat-viewport-height', `${height}px`);
+    };
+    syncViewportHeight();
+    viewport?.addEventListener('resize', syncViewportHeight);
+    window.addEventListener('resize', syncViewportHeight);
+    return () => {
+      viewport?.removeEventListener('resize', syncViewportHeight);
+      window.removeEventListener('resize', syncViewportHeight);
+      document.documentElement.style.removeProperty('--chat-viewport-height');
+    };
+  }, []);
+
   const {
     conversations,
     setConversations,
@@ -170,7 +186,10 @@ export const Chat = () => {
 //   );
 // };
 return (
-    <div className="relative flex h-dvh w-full overflow-hidden bg-chat-bg antialiased transition-colors duration-300 dark:bg-dark-bg">
+    <div
+      className="fixed inset-x-0 top-0 flex w-full overflow-hidden overscroll-none bg-chat-bg antialiased transition-colors duration-300 dark:bg-dark-bg"
+      style={{ height: 'var(--chat-viewport-height, 100dvh)' }}
+    >
       {/* Sidebar Panel */}
       <div
         className={`${
@@ -192,7 +211,7 @@ return (
       <div
         className={`${
           selectedConversation ? 'translate-x-0' : 'translate-x-full'
-        } absolute inset-0 z-10 h-full w-full transform transition-transform duration-300 ease-out will-change-transform md:relative md:inset-auto md:z-auto md:flex md:min-w-0 md:flex-1 md:translate-x-0`}
+        } absolute inset-0 z-10 h-full min-h-0 w-full transform transition-transform duration-300 ease-out will-change-transform md:relative md:inset-auto md:z-auto md:flex md:min-w-0 md:flex-1 md:translate-x-0`}
       >
         <ChatArea
           conversation={selectedConversation}

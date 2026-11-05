@@ -95,7 +95,7 @@ export const ChatHeader = ({
   };
 
   return (
-    <div className="h-16 px-4 bg-white dark:bg-dark-header border-b border-gray-200 dark:border-gray-800 flex items-center justify-between select-none z-10 transition-colors">
+    <div className="sticky top-0 z-30 flex h-16 flex-shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 select-none transition-colors dark:border-gray-800 dark:bg-dark-header">
       {/* Left section: Back button + Avatar + Name & Status */}
       <div className="flex items-center space-x-3 min-w-0">
         {onBack && (
