@@ -170,13 +170,12 @@ export const Chat = () => {
 //   );
 // };
 return (
-    <div className="flex h-dvh w-screen overflow-hidden bg-chat-bg antialiased transition-colors duration-300 dark:bg-dark-bg">
+    <div className="relative flex h-dvh w-full overflow-hidden bg-chat-bg antialiased transition-colors duration-300 dark:bg-dark-bg">
       {/* Sidebar Panel */}
-      {/* Desktop: fixed width, always visible. Mobile: visible when no conversation is selected */}
       <div
         className={`${
-          selectedConversation ? 'hidden md:flex' : 'flex'
-        } h-full w-full flex-shrink-0 border-r border-gray-200/70 dark:border-white/10 md:w-auto`}
+          selectedConversation ? '-translate-x-full' : 'translate-x-0'
+        } absolute inset-0 z-20 h-full w-full transform border-r border-gray-200/70 transition-transform duration-300 ease-out will-change-transform dark:border-white/10 md:relative md:inset-auto md:z-auto md:w-80 md:flex-shrink-0 md:translate-x-0 lg:w-96`}
       >
         <Sidebar
           conversations={conversations}
@@ -190,11 +189,10 @@ return (
       </div>
 
       {/* Chat Area Panel */}
-      {/* Desktop: always visible (placeholder or active chat). Mobile: visible only when chat is selected */}
       <div
         className={`${
-          selectedConversation ? 'flex' : 'hidden md:flex'
-        } h-full min-w-0 flex-1 flex-col`}
+          selectedConversation ? 'translate-x-0' : 'translate-x-full'
+        } absolute inset-0 z-10 h-full w-full transform transition-transform duration-300 ease-out will-change-transform md:relative md:inset-auto md:z-auto md:flex md:min-w-0 md:flex-1 md:translate-x-0`}
       >
         <ChatArea
           conversation={selectedConversation}
