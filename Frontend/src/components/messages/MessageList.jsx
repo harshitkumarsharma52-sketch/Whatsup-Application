@@ -15,6 +15,7 @@ export const MessageList = ({
   onDelete,
   onEdit,
   onReact,
+  onRetry,
   onMediaClick,
   conversationId,
 }) => {
@@ -24,6 +25,8 @@ export const MessageList = ({
   const bottomRef = useRef(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const prevMessagesLengthRef = useRef(messages.length);
+  const pendingPrependRef = useRef(null);
+  const firstMessageIdRef = useRef(messages[0]?._id);
 
   // Check if someone else is typing in this conversation
   const isTyping =
@@ -33,6 +36,15 @@ export const MessageList = ({
 
   // Auto-scroll on initial load or new messages
   useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (pendingPrependRef.current && container && messages[0]?._id !== firstMessageIdRef.current) {
+      const { height, top } = pendingPrependRef.current;
+      container.scrollTop = top + (container.scrollHeight - height);
+      pendingPrependRef.current = null;
+      firstMessageIdRef.current = messages[0]?._id;
+      prevMessagesLengthRef.current = messages.length;
+      return;
+    }
     if (messages.length > 0 && prevMessagesLengthRef.current === 0) {
       // First load: scroll to bottom immediately
       bottomRef.current?.scrollIntoView({ behavior: 'auto' });
@@ -48,7 +60,16 @@ export const MessageList = ({
       }
     }
     prevMessagesLengthRef.current = messages.length;
+    firstMessageIdRef.current = messages[0]?._id;
   }, [messages]);
+
+  const loadOlder = () => {
+    const container = scrollContainerRef.current;
+    if (container && !loading) {
+      pendingPrependRef.current = { height: container.scrollHeight, top: container.scrollTop };
+    }
+    onLoadMore?.();
+  };
 
   // Handle scroll events (show/hide scroll-to-bottom button & detect scroll-to-top)
   const handleScroll = () => {
@@ -61,7 +82,7 @@ export const MessageList = ({
 
     // If scrolled to top and hasMore, trigger loadMore
     if (container.scrollTop === 0 && hasMore && !loading) {
-      onLoadMore?.();
+      loadOlder();
     }
   };
 
@@ -81,7 +102,7 @@ export const MessageList = ({
         {hasMore && (
           <div className="flex justify-center my-2">
             <button
-              onClick={onLoadMore}
+              onClick={loadOlder}
               disabled={loading}
               className="px-3 py-1 bg-white dark:bg-dark-header border border-gray-200 dark:border-gray-700/60 text-xs text-gray-600 dark:text-gray-300 rounded-full shadow-xs hover:bg-gray-50 dark:hover:bg-dark-input transition-colors disabled:opacity-50 inline-flex items-center space-x-1"
             >
@@ -126,9 +147,14 @@ export const MessageList = ({
               : message.sender;
           const currentUserId = user?._id || user?.id;
           const isOwn = senderId === currentUserId;
+          const prevSenderId = prevMsg && (typeof prevMsg.sender === 'object'
+            ? prevMsg.sender?._id || prevMsg.sender?.id
+            : prevMsg.sender);
+          const sameSender = prevSenderId && String(prevSenderId) === String(senderId)
+            && prevMsgDate === currentMsgDate;
 
           return (
-            <React.Fragment key={message._id || message.id || message.clientTempId || index}>
+            <React.Fragment key={message._id || message.id || message.clientTempId}>
               {showDateSeparator && (
                 <div className="flex justify-center my-3 select-none">
                   <span className="px-3 py-1 bg-white/90 dark:bg-dark-header/90 text-gray-600 dark:text-gray-300 text-[11px] font-medium rounded-full shadow-xs border border-gray-100 dark:border-gray-800">
@@ -140,11 +166,12 @@ export const MessageList = ({
               <MessageBubble
                 message={message}
                 isOwn={isOwn}
-                showAvatar={!isOwn}
+                showAvatar={!isOwn && !sameSender}
                 onReply={onReply}
                 onDelete={onDelete}
                 onEdit={onEdit}
                 onReact={onReact}
+                onRetry={onRetry}
                 onMediaClick={onMediaClick}
               />
             </React.Fragment>

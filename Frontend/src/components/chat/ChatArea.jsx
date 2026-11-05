@@ -8,6 +8,7 @@ import MediaPreview from '../media/MediaPreview';
 import Modal from '../common/Modal';
 import Button from '../common/Button';
 import { useMessages } from '../../hooks/useMessages';
+import api from '../../services/api';
 
 export const ChatArea = ({
   conversation,
@@ -23,9 +24,11 @@ export const ChatArea = ({
     sending,
     loadMore,
     sendMessage,
+    retryMessage,
     deleteMessage,
     editMessage,
     reactToMessage,
+    clearMessages,
   } = useMessages(convId);
 
   const [replyTo, setReplyTo] = useState(null);
@@ -47,7 +50,7 @@ export const ChatArea = ({
         </p>
         <div className="mt-8 flex items-center space-x-1.5 text-xs text-gray-400 dark:text-gray-500">
           <Lock className="w-3.5 h-3.5" />
-          <span>End-to-end encrypted</span>
+          <span>Private conversations for your account</span>
         </div>
       </div>
     );
@@ -59,12 +62,18 @@ export const ChatArea = ({
   };
 
   const handleConfirmClearChat = async () => {
-    setShowClearConfirm(false);
-    toast.success('Chat cleared');
+    try {
+      await api.delete(`/conversations/${convId}`);
+      clearMessages();
+      setShowClearConfirm(false);
+      toast.success('Chat cleared');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not clear chat');
+    }
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-chat-bg dark:bg-dark-bg relative overflow-hidden">
+    <div className="panel-enter flex-1 flex flex-col h-full bg-chat-bg dark:bg-dark-bg relative overflow-hidden">
       {/* Header */}
       <ChatHeader
         conversation={conversation}
@@ -84,6 +93,7 @@ export const ChatArea = ({
         onDelete={deleteMessage}
         onEdit={editMessage}
         onReact={reactToMessage}
+        onRetry={retryMessage}
         onMediaClick={(media) => setActiveMedia(media)}
       />
 

@@ -49,7 +49,7 @@ const setRefreshCookie = (res, token) => {
   res.cookie('refreshToken', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: REFRESH_EXPIRES_IN_MS,
     path: '/api/auth',
   });
@@ -62,7 +62,7 @@ const clearRefreshCookie = (res) => {
   res.clearCookie('refreshToken', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/api/auth',
   });
 };
@@ -184,7 +184,7 @@ const login = async (req, res, next) => {
  */
 const logout = async (req, res, next) => {
   try {
-    const token = req.cookies?.refreshToken || req.body?.refreshToken;
+    const token = req.cookies?.refreshToken;
 
     if (token) {
       const tokenDoc = await RefreshToken.findByToken(token);
@@ -210,7 +210,7 @@ const logout = async (req, res, next) => {
  */
 const refresh = async (req, res, next) => {
   try {
-    const token = req.cookies?.refreshToken || req.body?.refreshToken;
+    const token = req.cookies?.refreshToken;
 
     if (!token) {
       return res.status(401).json({
@@ -292,8 +292,20 @@ const refresh = async (req, res, next) => {
       });
     }
 
-    // Token rotation: Revoke current refresh token
-    await storedToken.revoke('Rotated on refresh');
+    // Atomic rotation prevents two concurrent refreshes from issuing valid pairs.
+    const rotatedToken = await RefreshToken.findOneAndUpdate(
+      { _id: storedToken._id, isRevoked: false },
+      { $set: { isRevoked: true, revokedAt: new Date(), revokedReason: 'Rotated on refresh' } },
+      { new: true }
+    );
+    if (!rotatedToken) {
+      clearRefreshCookie(res);
+      return res.status(401).json({
+        success: false,
+        message: 'Refresh token has already been used',
+        code: 'REFRESH_TOKEN_REUSED',
+      });
+    }
 
     // Issue new pair
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);

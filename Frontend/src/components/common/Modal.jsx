@@ -37,7 +37,7 @@ export const Modal = ({
 
       {/* Modal Dialog */}
       <div
-        className={`relative w-full ${maxWidth} bg-white dark:bg-dark-header rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 z-10 overflow-hidden transform transition-all duration-200 ease-out`}
+        className={`modal-enter relative w-full ${maxWidth} bg-white dark:bg-dark-header rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 z-10 overflow-hidden transform transition-all duration-200 ease-out`}
         role="dialog"
         aria-modal="true"
       >

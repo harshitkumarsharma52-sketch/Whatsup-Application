@@ -43,7 +43,7 @@ export const Sidebar = ({
           title="View Profile"
         >
           <Avatar
-            src={user?.avatar}
+            src={user?.profilePicture?.url || user?.avatar}
             name={user?.username || 'Me'}
             size="md"
             className="group-hover:ring-2 ring-primary-500 transition-all"

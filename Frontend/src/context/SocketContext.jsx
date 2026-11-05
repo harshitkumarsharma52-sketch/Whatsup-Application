@@ -5,19 +5,28 @@ import { useAuth } from './AuthContext';
 const SocketContext = createContext(null);
 
 export const SocketProvider = ({ children }) => {
-  const { user, isAuthenticated, accessToken } = useAuth();
+  const { user, isAuthenticated, accessToken, refreshAuth } = useAuth();
+  const userId = user?._id || user?.id;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
   const [socket, setSocket] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   // Map conversationId -> Set of userIds
   const [typingUsers, setTypingUsers] = useState(new Map());
+  const typingTimeoutsRef = useRef(new Map());
+  const refreshingSocketAuthRef = useRef(false);
 
   // Use refs to store event listeners for broadcast
   const listenersRef = useRef({
-    'message:new': new Set(),
+    newMessage: new Set(),
     'message:delivered': new Set(),
     'message:read': new Set(),
-    'message:delete': new Set(),
-    'message:edit': new Set(),
+    'message:deleted': new Set(),
+    'message:edited': new Set(),
+    'message:reaction': new Set(),
+    'conversation:new': new Set(),
+    'conversation:unread': new Set(),
+    'connect': new Set(),
   });
 
   // Helper to subscribe to socket events from hooks
@@ -37,6 +46,8 @@ export const SocketProvider = ({ children }) => {
       setSocket(null);
       setOnlineUsers(new Set());
       setTypingUsers(new Map());
+      typingTimeoutsRef.current.forEach(clearTimeout);
+      typingTimeoutsRef.current.clear();
       return;
     }
 
@@ -69,7 +80,7 @@ export const SocketProvider = ({ children }) => {
     };
 
     const handleTypingStart = ({ conversationId, userId, username }) => {
-      if (!conversationId || !userId || userId === (user._id || user.id)) return;
+      if (!conversationId || !userId || String(userId) === String(userIdRef.current)) return;
       setTypingUsers((prev) => {
         const next = new Map(prev);
         const set = new Set(next.get(conversationId) || []);
@@ -77,10 +88,26 @@ export const SocketProvider = ({ children }) => {
         next.set(conversationId, set);
         return next;
       });
+      const key = `${conversationId}:${userId}`;
+      clearTimeout(typingTimeoutsRef.current.get(key));
+      typingTimeoutsRef.current.set(key, setTimeout(() => {
+        setTypingUsers((prev) => {
+          const next = new Map(prev);
+          const users = new Set(next.get(conversationId) || []);
+          users.delete(userId);
+          if (users.size) next.set(conversationId, users);
+          else next.delete(conversationId);
+          return next;
+        });
+        typingTimeoutsRef.current.delete(key);
+      }, 5000));
     };
 
     const handleTypingStop = ({ conversationId, userId }) => {
       if (!conversationId || !userId) return;
+      const key = `${conversationId}:${userId}`;
+      clearTimeout(typingTimeoutsRef.current.get(key));
+      typingTimeoutsRef.current.delete(key);
       setTypingUsers((prev) => {
         const next = new Map(prev);
         const set = new Set(next.get(conversationId) || []);
@@ -96,7 +123,7 @@ export const SocketProvider = ({ children }) => {
 
     // Forward messages to registered subscribers
     const handleNewMessage = (message) => {
-      listenersRef.current['message:new'].forEach((cb) => cb(message));
+      listenersRef.current.newMessage.forEach((cb) => cb(message));
     };
 
     const handleDelivered = (data) => {
@@ -107,12 +134,36 @@ export const SocketProvider = ({ children }) => {
       listenersRef.current['message:read'].forEach((cb) => cb(data));
     };
 
-    const handleDelete = (data) => {
-      listenersRef.current['message:delete'].forEach((cb) => cb(data));
+    const handleDeleted = (data) => {
+      listenersRef.current['message:deleted'].forEach((cb) => cb(data));
     };
 
-    const handleEdit = (data) => {
-      listenersRef.current['message:edit'].forEach((cb) => cb(data));
+    const handleEdited = (data) => {
+      listenersRef.current['message:edited'].forEach((cb) => cb(data));
+    };
+
+    const forward = (event) => (data) => listenersRef.current[event]?.forEach((cb) => cb(data));
+    const handleConversationNew = (conversation) => {
+      const conversationId = conversation?._id || conversation?.id;
+      if (conversationId) currentSocket.emit('group:join', { conversationId });
+      forward('conversation:new')(conversation);
+    };
+    const handleConnect = () => listenersRef.current.connect.forEach((cb) => cb());
+    const handleConnectError = async (error) => {
+      if (refreshingSocketAuthRef.current || !/auth|token|expired/i.test(error.message || '')) return;
+      refreshingSocketAuthRef.current = true;
+      try {
+        const freshToken = await refreshAuth();
+        if (freshToken) {
+          currentSocket.auth = { token: freshToken };
+          currentSocket.disconnect();
+          currentSocket.connect();
+        }
+      } catch {
+        // AuthContext clears the session and disconnects this socket when refresh fails.
+      } finally {
+        refreshingSocketAuthRef.current = false;
+      }
     };
 
     currentSocket.on('users:online', handleInitialOnlineUsers);
@@ -122,11 +173,19 @@ export const SocketProvider = ({ children }) => {
     currentSocket.on('typing:start', handleTypingStart);
     currentSocket.on('typing:stop', handleTypingStop);
 
-    currentSocket.on('message:new', handleNewMessage);
+    currentSocket.on('newMessage', handleNewMessage);
     currentSocket.on('message:delivered', handleDelivered);
     currentSocket.on('message:read', handleRead);
-    currentSocket.on('message:delete', handleDelete);
-    currentSocket.on('message:edit', handleEdit);
+    currentSocket.on('message:deleted', handleDeleted);
+    currentSocket.on('message:edited', handleEdited);
+    currentSocket.on('message:reaction', forward('message:reaction'));
+    currentSocket.on('conversation:new', handleConversationNew);
+    currentSocket.on('group:created', handleConversationNew);
+    currentSocket.on('group:invited', handleConversationNew);
+    currentSocket.on('conversation:unread', forward('conversation:unread'));
+    currentSocket.on('connect', handleConnect);
+    currentSocket.on('connect_error', handleConnectError);
+    currentSocket.connect();
 
     return () => {
       currentSocket.off('users:online', handleInitialOnlineUsers);
@@ -135,13 +194,20 @@ export const SocketProvider = ({ children }) => {
       currentSocket.off('user:offline', handleUserOffline);
       currentSocket.off('typing:start', handleTypingStart);
       currentSocket.off('typing:stop', handleTypingStop);
-      currentSocket.off('message:new', handleNewMessage);
+      currentSocket.off('newMessage', handleNewMessage);
       currentSocket.off('message:delivered', handleDelivered);
       currentSocket.off('message:read', handleRead);
-      currentSocket.off('message:delete', handleDelete);
-      currentSocket.off('message:edit', handleEdit);
+      currentSocket.off('message:deleted', handleDeleted);
+      currentSocket.off('message:edited', handleEdited);
+      currentSocket.off('message:reaction');
+      currentSocket.off('conversation:new', handleConversationNew);
+      currentSocket.off('group:created', handleConversationNew);
+      currentSocket.off('group:invited', handleConversationNew);
+      currentSocket.off('conversation:unread');
+      currentSocket.off('connect', handleConnect);
+      currentSocket.off('connect_error', handleConnectError);
     };
-  }, [isAuthenticated, user, accessToken]);
+  }, [isAuthenticated, userId, accessToken, refreshAuth]);
 
   const isUserOnline = useCallback(
     (userId) => {

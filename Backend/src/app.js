@@ -19,6 +19,12 @@ const mediaRoutes = require('./routes/media.routes');
 const groupRoutes = require('./routes/group.routes');
 
 const app = express();
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+
+const clientOrigins = (process.env.CLIENT_ORIGINS || process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 // Security: Helmet with strict Content Security Policy
 app.use(
@@ -30,7 +36,7 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:', 'https://ik.imagekit.io'],
         mediaSrc: ["'self'", 'blob:', 'https://ik.imagekit.io'],
-        connectSrc: ["'self'", process.env.CLIENT_URL || 'http://localhost:5173'],
+        connectSrc: ["'self'", ...clientOrigins],
         fontSrc: ["'self'"],
         objectSrc: ["'none'"],
         frameSrc: ["'none'"],
@@ -41,12 +47,10 @@ app.use(
 );
 
 // Security: CORS configuration with strict allowlist
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. mobile apps, curl, or server-to-server)
-      if (!origin || origin === clientUrl) {
+      if (!origin || clientOrigins.includes(origin)) {
         return callback(null, true);
       }
       return callback(new Error(`CORS blocked for origin: ${origin}`));

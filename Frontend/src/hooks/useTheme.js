@@ -21,6 +21,15 @@ export const useTheme = () => {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const syncSystemTheme = (event) => {
+      if (!localStorage.getItem('theme')) setThemeState(event.matches ? 'dark' : 'light');
+    };
+    media.addEventListener?.('change', syncSystemTheme);
+    return () => media.removeEventListener?.('change', syncSystemTheme);
+  }, []);
+
   const toggleTheme = () => {
     setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };

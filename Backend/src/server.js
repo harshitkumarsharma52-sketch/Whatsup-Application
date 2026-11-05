@@ -9,7 +9,10 @@ const socketService = require('./services/socket.service');
 const initChatSocket = require('./sockets/chat.socket');
 
 const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS || process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 // Connect to Database
 connectDB();
@@ -20,7 +23,7 @@ const server = http.createServer(app);
 // Setup Socket.IO Server with strict CORS
 const io = new Server(server, {
   cors: {
-    origin: CLIENT_URL,
+    origin: CLIENT_ORIGINS,
     credentials: true,
     methods: ['GET', 'POST'],
   },
@@ -37,7 +40,7 @@ initChatSocket(io);
 // Start listening
 server.listen(PORT, () => {
   console.log(`[Server] Server listening on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-  console.log(`[Server] Socket.IO running, accepting connections from: ${CLIENT_URL}`);
+  console.log(`[Server] Socket.IO running, accepting connections from: ${CLIENT_ORIGINS.join(', ')}`);
 });
 
 // Graceful shutdown handling

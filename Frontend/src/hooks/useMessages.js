@@ -17,6 +17,7 @@ const normalizeMessage = (m) => {
   const media = m.media || {};
   return {
     ...m,
+    isEdited: m.isEdited ?? !!m.editedAt,
     conversationId: m.conversationId || idOf(m.conversation),
     content: m.isDeleted ? 'This message was deleted' : m.text ?? m.content ?? '',
     mediaUrl: media.url || m.mediaUrl || null,
@@ -39,6 +40,7 @@ export const useMessages = (conversationId) => {
 
   const activeConvIdRef = useRef(conversationId);
   activeConvIdRef.current = conversationId;
+  const fetchGenerationRef = useRef(0);
 
   const markRead = useCallback((messageId) => {
     if (!messageId) return;
@@ -47,14 +49,19 @@ export const useMessages = (conversationId) => {
 
   const fetchInitialMessages = useCallback(
     async (convId) => {
+      const requestGeneration = ++fetchGenerationRef.current;
       if (!convId) {
         setMessages([]);
         setHasMore(false);
+        setLoading(false);
         return;
       }
       try {
         setLoading(true);
+        setMessages([]);
+        setHasMore(true);
         const res = await api.get(`/messages/${convId}`, { params: { limit: 40 } });
+        if (requestGeneration !== fetchGenerationRef.current) return;
         const list = (res.data?.messages || []).map(normalizeMessage);
 
         setMessages(list); // backend already chronological bhej raha hai
@@ -64,10 +71,11 @@ export const useMessages = (conversationId) => {
         const lastIncoming = [...list].reverse().find((m) => idOf(m.sender) !== myId);
         if (lastIncoming) markRead(lastIncoming._id);
       } catch (err) {
+        if (requestGeneration !== fetchGenerationRef.current) return;
         console.error('Failed to load messages:', err);
         setMessages([]);
       } finally {
-        setLoading(false);
+        if (requestGeneration === fetchGenerationRef.current) setLoading(false);
       }
     },
     [myId, markRead]
@@ -101,8 +109,9 @@ export const useMessages = (conversationId) => {
   // Socket listeners (event names backend ke hisaab se)
   useEffect(() => {
     if (!conversationId) return;
+    const unReconnect = subscribe('connect', () => fetchInitialMessages(activeConvIdRef.current));
 
-    const unNew = subscribe('message:new', (raw) => {
+    const unNew = subscribe('newMessage', (raw) => {
       const newMsg = normalizeMessage(raw);
       if (String(newMsg.conversationId) !== String(activeConvIdRef.current)) return;
 
@@ -123,13 +132,19 @@ export const useMessages = (conversationId) => {
       if (idOf(newMsg.sender) !== myId) markRead(newMsg._id);
     });
 
-    const unRead = subscribe('message:read', ({ conversationId: cId, userId, lastReadMessageId }) => {
+    const unDelivered = subscribe('message:delivered', ({ messageId, conversationId: cId }) => {
+      if (String(cId) !== String(activeConvIdRef.current)) return;
+      setMessages((prev) => prev.map((m) =>
+        m._id === messageId && m.status !== 'read' ? { ...m, status: 'delivered' } : m
+      ));
+    });
+
+    const unRead = subscribe('message:read', ({ conversationId: cId, userId, lastReadMessageId, readAt }) => {
       if (String(cId) !== String(activeConvIdRef.current)) return;
       if (String(userId) === String(myId)) return; // maine khud padha, ignore
       setMessages((prev) => {
         const target = prev.find((m) => m._id === lastReadMessageId);
-        if (!target) return prev;
-        const limit = new Date(target.createdAt).getTime();
+        const limit = target ? new Date(target.createdAt).getTime() : new Date(readAt || Date.now()).getTime();
         return prev.map((m) =>
           idOf(m.sender) === myId && new Date(m.createdAt).getTime() <= limit
             ? { ...m, status: 'read' }
@@ -160,13 +175,15 @@ export const useMessages = (conversationId) => {
     });
 
     return () => {
+      unReconnect();
       unNew();
+      unDelivered();
       unRead();
       unDeleted();
       unEdited();
       unReaction();
     };
-  }, [conversationId, subscribe, myId, markRead]);
+  }, [conversationId, subscribe, myId, markRead, fetchInitialMessages]);
 
   const sendMessage = useCallback(
     async ({
@@ -194,6 +211,7 @@ export const useMessages = (conversationId) => {
           mediaType: media?.mimeType || mediaType,
           mediaSize: media?.fileSize || mediaSize,
           mediaName: media?.fileName || mediaName,
+          media: media || undefined,
           replyTo,
           status: 'sending',
           createdAt: new Date().toISOString(),
@@ -249,6 +267,19 @@ export const useMessages = (conversationId) => {
     [conversationId, user]
   );
 
+  const retryMessage = useCallback((message) => {
+    setMessages((prev) => prev.filter((item) => item._id !== message._id));
+    return sendMessage({
+      content: message.content,
+      mediaUrl: message.mediaUrl,
+      mediaType: message.mediaType,
+      mediaSize: message.mediaSize,
+      mediaName: message.mediaName,
+      media: message.media,
+      replyTo: message.replyTo,
+    });
+  }, [sendMessage]);
+
   const deleteMessage = useCallback(async (messageId, deleteForEveryone = false) => {
     try {
       await api.delete(`/messages/${messageId}`, { data: { deleteForEveryone } });
@@ -289,6 +320,8 @@ export const useMessages = (conversationId) => {
     }
   }, []);
 
+  const clearMessages = useCallback(() => setMessages([]), []);
+
   return {
     messages,
     loading,
@@ -296,9 +329,11 @@ export const useMessages = (conversationId) => {
     sending,
     loadMore,
     sendMessage,
+    retryMessage,
     deleteMessage,
     editMessage,
     reactToMessage,
+    clearMessages,
   };
 };
 

@@ -1,5 +1,11 @@
 # ChatApp — Real-Time WhatsApp-Like Messaging Application
 
+## Current deployment configuration
+
+For local development, copy `Backend/.env.example` to `Backend/.env` and `Frontend/.env.example` to `Frontend/.env`. Set `CLIENT_ORIGINS` to a comma-separated allowlist of frontend origins (for example `http://localhost:5173`). The backend reads `PORT` from the host and exposes `/api/health`; Render deployments should set `NODE_ENV=production`, `CLIENT_ORIGINS` to the deployed frontend origin, and the MongoDB, JWT, and ImageKit values from the backend example. The frontend host should set `VITE_API_URL` to the deployed backend `/api` URL and `VITE_SOCKET_URL` to the backend origin. Keep WebSocket connections enabled on the backend host.
+
+Run the frontend production build with `cd Frontend && npm run build`. Start the backend with `cd Backend && npm start` (or `npm run dev` locally). The backend package does not currently define a lint command; its JavaScript files can be syntax-checked with `node --check`.
+
 A production-style, full-stack real-time chat application built with the MERN stack (MongoDB, Express, React, Node.js) and Socket.IO.
 
 ---

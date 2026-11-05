@@ -66,7 +66,7 @@ export const ConversationList = ({
 
   return (
     <div className="overflow-y-auto flex-1 divide-y divide-gray-100 dark:divide-gray-800/40">
-      {filteredConversations.map((conv) => {
+      {filteredConversations.map((conv, index) => {
         const id = conv._id || conv.id;
         const isSelected = selectedConversationId === id;
 
@@ -74,6 +74,7 @@ export const ConversationList = ({
           <ConversationItem
             key={id}
             conversation={conv}
+            animationIndex={Math.min(index, 6)}
             isSelected={isSelected}
             onClick={() => onSelectConversation(conv)}
           />

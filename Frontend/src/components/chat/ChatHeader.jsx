@@ -48,14 +48,14 @@ export const ChatHeader = ({
       ) || conversation.recipient;
 
   const conversationName = isGroup
-    ? conversation.name || 'Group Chat'
+    ? conversation.groupName || conversation.name || 'Group Chat'
     : otherParticipant?.username ||
       otherParticipant?.name ||
       'Chat';
 
   const avatarSrc = isGroup
-    ? conversation.groupImage || conversation.avatar
-    : otherParticipant?.avatar;
+    ? conversation.groupImage?.url || conversation.groupImage || conversation.avatar
+    : otherParticipant?.profilePicture?.url || otherParticipant?.avatar;
 
   const isOnline = otherParticipant
     ? isUserOnline(otherParticipant._id || otherParticipant.id)

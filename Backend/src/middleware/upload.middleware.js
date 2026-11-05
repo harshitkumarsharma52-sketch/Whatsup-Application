@@ -14,6 +14,7 @@ const ALLOWED_MIME_TYPES = new Set([
   'audio/mpeg',
   'audio/wav',
   'audio/ogg',
+  'audio/webm',
   'application/pdf',
 ]);
 
@@ -45,6 +46,7 @@ const MIME_EXT_MAP = {
   'audio/mpeg': '.mp3',
   'audio/wav': '.wav',
   'audio/ogg': '.ogg',
+  'audio/webm': '.webm',
   'application/pdf': '.pdf',
 };
 
@@ -82,7 +84,7 @@ const validateMagicBytes = (buffer, mimeType) => {
   }
 
   // WebM: 1A 45 DF A3
-  if (mimeType === 'video/webm') {
+  if (mimeType === 'video/webm' || mimeType === 'audio/webm') {
     return buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3;
   }
 

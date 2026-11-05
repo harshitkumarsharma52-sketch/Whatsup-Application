@@ -14,15 +14,17 @@ const SOCKET_URL =
  * @returns {Socket}
  */
 export const initSocket = (token) => {
-  if (socket && socket.connected) {
+  if (socket) {
+    const previousToken = socket.auth?.token;
+    socket.auth = { token };
+    if (socket.connected && token && previousToken !== token) {
+      socket.disconnect();
+    }
     return socket;
   }
 
-  if (socket) {
-    socket.disconnect();
-  }
-
   socket = io(SOCKET_URL, {
+    autoConnect: false,
     auth: {
       token,
     },
@@ -33,18 +35,6 @@ export const initSocket = (token) => {
     reconnectionDelayMax: 5000,
     timeout: 20000,
     transports: ['websocket', 'polling'],
-  });
-
-  socket.on('connect', () => {
-    console.log('[Socket] Connected with ID:', socket.id);
-  });
-
-  socket.on('connect_error', (error) => {
-    console.warn('[Socket] Connection error:', error.message);
-  });
-
-  socket.on('disconnect', (reason) => {
-    console.log('[Socket] Disconnected:', reason);
   });
 
   return socket;

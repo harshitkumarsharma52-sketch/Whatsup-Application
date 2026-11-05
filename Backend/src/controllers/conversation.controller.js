@@ -87,7 +87,7 @@ const createOrGetPrivate = async (req, res, next) => {
       .populate('lastMessage');
 
     // Notify recipient via socket if connected
-    socketService.emitToUser(recipientId, 'conversation:new', conversation);
+    socketService.emitToConversationParticipants(newConversation, 'conversation:new', conversation);
 
     return res.status(201).json({
       success: true,
@@ -121,6 +121,13 @@ const getConversations = async (req, res, next) => {
       .populate('admins', 'username profilePicture')
       .sort({ updatedAt: -1 })
       .lean();
+
+    conversations.forEach((conversation) => {
+      const deletedFor = conversation.lastMessage?.deletedFor || [];
+      if (deletedFor.some((deletedUserId) => deletedUserId.toString() === currentUserId)) {
+        conversation.lastMessage = null;
+      }
+    });
 
     return res.status(200).json({
       success: true,
@@ -356,6 +363,11 @@ const markConversationAsRead = async (req, res, next) => {
         readAt,
       });
     } catch {}
+
+    socketService.emitToUser(currentUserId, 'conversation:unread', {
+      conversationId: id,
+      unreadCount: 0,
+    });
 
     return res.status(200).json({
       success: true,

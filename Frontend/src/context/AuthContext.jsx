@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import api, { setAccessToken, clearAccessToken } from '../services/api';
+import api, { setAccessToken, clearAccessToken, refreshAccessToken } from '../services/api';
 import { disconnectSocket } from '../services/socket';
 
 const AuthContext = createContext(null);
@@ -31,7 +31,7 @@ export const AuthProvider = ({ children }) => {
     const restoreSession = async () => {
       try {
         // Try refresh first to obtain an in-memory access token via HTTP-only cookie
-        const refreshRes = await api.get('/auth/refresh');
+        const refreshRes = await refreshAccessToken();
         const { token, user: refreshedUser } = extractAuthData(refreshRes.data);
 
         if (token) {
@@ -47,22 +47,11 @@ export const AuthProvider = ({ children }) => {
           const { user: meUser } = extractAuthData(meRes.data);
           if (isMounted) setUser(meUser || meRes.data);
         }
-      } catch (refreshErr) {
-        // If refresh fails, try /auth/me directly
-        try {
-          const meRes = await api.get('/auth/me');
-          const { token, user: meUser } = extractAuthData(meRes.data);
-          if (token) {
-            setAccessToken(token);
-            if (isMounted) setAccessTokenState(token);
-          }
-          if (isMounted) setUser(meUser || meRes.data);
-        } catch (meErr) {
-          clearAccessToken();
-          if (isMounted) {
-            setUser(null);
-            setAccessTokenState(null);
-          }
+      } catch {
+        clearAccessToken();
+        if (isMounted) {
+          setUser(null);
+          setAccessTokenState(null);
         }
       } finally {
         if (isMounted) {
@@ -75,6 +64,25 @@ export const AuthProvider = ({ children }) => {
 
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleTokenRefreshed = (event) => {
+      const token = event.detail;
+      if (token) setAccessTokenState(token);
+    };
+    const handleSessionExpired = () => {
+      clearAccessToken();
+      disconnectSocket();
+      setUser(null);
+      setAccessTokenState(null);
+    };
+    window.addEventListener('auth:token-refreshed', handleTokenRefreshed);
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => {
+      window.removeEventListener('auth:token-refreshed', handleTokenRefreshed);
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
     };
   }, []);
 
@@ -128,7 +136,7 @@ export const AuthProvider = ({ children }) => {
 
   const refreshAuth = useCallback(async () => {
     try {
-      const response = await api.get('/auth/refresh');
+      const response = await refreshAccessToken();
       const { token, user: refreshedUser } = extractAuthData(response.data);
       if (token) {
         setAccessToken(token);

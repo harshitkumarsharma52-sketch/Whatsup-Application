@@ -3,6 +3,7 @@ import axios from 'axios';
 let memoryToken = null;
 let isRefreshing = false;
 let failedQueue = [];
+let refreshPromise = null;
 
 const processQueue = (error, token = null) => {
   failedQueue.forEach((prom) => {
@@ -25,6 +26,18 @@ export const getAccessToken = () => {
 
 export const clearAccessToken = () => {
   memoryToken = null;
+};
+
+export const refreshAccessToken = () => {
+  if (!refreshPromise) {
+    refreshPromise = axios.get(`${baseURL}/auth/refresh`, { withCredentials: true })
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+};
+
+const notifyAuthEvent = (name, detail) => {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(name, { detail }));
 };
 
 const baseURL = import.meta.env.VITE_API_URL || '/api';
@@ -87,9 +100,7 @@ api.interceptors.response.use(
 
       try {
         // Refresh token request via cookie
-        const refreshResponse = await axios.get(`${baseURL}/auth/refresh`, {
-          withCredentials: true,
-        });
+        const refreshResponse = await refreshAccessToken();
 
         const newToken =
           refreshResponse.data?.accessToken ||
@@ -98,6 +109,7 @@ api.interceptors.response.use(
 
         if (newToken) {
           setAccessToken(newToken);
+          notifyAuthEvent('auth:token-refreshed', newToken);
           processQueue(null, newToken);
           originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
           return api(originalRequest);
@@ -107,6 +119,7 @@ api.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError, null);
         clearAccessToken();
+        notifyAuthEvent('auth:session-expired');
         if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
           window.location.href = '/login';
         }

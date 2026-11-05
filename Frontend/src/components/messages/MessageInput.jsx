@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import {
   Smile,
   Paperclip,
@@ -7,11 +7,12 @@ import {
   MicOff,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import EmojiPicker from './EmojiPicker';
 import ReplyPreview from './ReplyPreview';
 import FileUploadPreview from '../media/FileUploadPreview';
 import api from '../../services/api';
 import { useSocket } from '../../context/SocketContext';
+
+const EmojiPicker = lazy(() => import('./EmojiPicker'));
 
 export const MessageInput = ({
   conversationId,
@@ -34,6 +35,9 @@ export const MessageInput = ({
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
   const recordingTimerRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+  const discardRecordingRef = useRef(false);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -49,6 +53,7 @@ export const MessageInput = ({
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
       if (isTypingRef.current && conversationId) {
         emitTypingStop(conversationId);
       }
@@ -82,9 +87,15 @@ export const MessageInput = ({
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      // 25MB max size limit
-      if (file.size > 25 * 1024 * 1024) {
-        toast.error('File size must be under 25MB');
+      const maxSize = file.type.startsWith('video/')
+        ? 100 * 1024 * 1024
+        : file.type.startsWith('audio/')
+          ? 20 * 1024 * 1024
+          : file.type.startsWith('image/')
+            ? 10 * 1024 * 1024
+            : 25 * 1024 * 1024;
+      if (file.size > maxSize) {
+        toast.error(`This file exceeds the ${Math.round(maxSize / 1024 / 1024)}MB limit`);
         return;
       }
       setSelectedFile(file);
@@ -204,22 +215,50 @@ export const MessageInput = ({
     }
   };
 
-  // Voice recording simulation UI
-  const toggleRecording = () => {
+  const toggleRecording = async () => {
     if (isRecording) {
-      // Stop recording
+      mediaRecorderRef.current?.stop();
       clearInterval(recordingTimerRef.current);
-      setIsRecording(false);
-      setRecordingSeconds(0);
-      toast.success('Voice message recorded (simulated)');
-    } else {
-      // Start recording
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg']
+        .find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaRecorderRef.current = recorder;
+      recordingChunksRef.current = [];
+      discardRecordingRef.current = false;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecording(false);
+        clearInterval(recordingTimerRef.current);
+        setRecordingSeconds(0);
+        if (!discardRecordingRef.current && recordingChunksRef.current.length) {
+          const type = recorder.mimeType || 'audio/webm';
+          const extension = type.includes('ogg') ? 'ogg' : 'webm';
+          setSelectedFile(new File(recordingChunksRef.current, `voice-message.${extension}`, { type }));
+        }
+      };
+      recorder.start();
       setIsRecording(true);
       setRecordingSeconds(0);
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingSeconds((s) => s + 1);
-      }, 1000);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    } catch (error) {
+      toast.error(error.name === 'NotAllowedError' ? 'Allow microphone access to record audio' : 'Could not start audio recording');
     }
+  };
+
+  const cancelRecording = () => {
+    discardRecordingRef.current = true;
+    if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
+    clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
+    setRecordingSeconds(0);
   };
 
   const formatRecordTime = (sec) => {
@@ -231,7 +270,7 @@ export const MessageInput = ({
   const isUploading = uploadProgress !== null;
 
   return (
-    <div className="relative p-3 bg-white dark:bg-dark-header border-t border-gray-200 dark:border-gray-800 transition-colors">
+    <div className="safe-area-bottom relative p-3 bg-white dark:bg-dark-header border-t border-gray-200 dark:border-gray-800 transition-colors">
       {/* Reply Preview */}
       <ReplyPreview replyTo={replyTo} onCancel={onCancelReply} />
 
@@ -243,11 +282,13 @@ export const MessageInput = ({
       />
 
       {/* Emoji Picker Popup */}
-      <EmojiPicker
-        isOpen={showEmojiPicker}
-        onEmojiSelect={handleEmojiSelect}
-        onClose={() => setShowEmojiPicker(false)}
-      />
+      <Suspense fallback={null}>
+        <EmojiPicker
+          isOpen={showEmojiPicker}
+          onEmojiSelect={handleEmojiSelect}
+          onClose={() => setShowEmojiPicker(false)}
+        />
+      </Suspense>
 
       {/* Hidden File Input */}
       <input
@@ -255,7 +296,7 @@ export const MessageInput = ({
         ref={fileInputRef}
         onChange={handleFileChange}
         className="hidden"
-        accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+        accept="image/*,video/*,audio/*,.pdf"
       />
 
       {/* Input controls row */}
@@ -270,11 +311,7 @@ export const MessageInput = ({
           <div className="flex items-center space-x-2">
             <button
               type="button"
-              onClick={() => {
-                clearInterval(recordingTimerRef.current);
-                setIsRecording(false);
-                setRecordingSeconds(0);
-              }}
+              onClick={cancelRecording}
               className="px-3 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400"
             >
               Cancel

@@ -26,14 +26,18 @@ export const useConversations = (activeConversationId = null) => {
         return timeB - timeA;
       });
 
-      setConversations(sorted);
+      const currentUserId = user?._id || user?.id;
+      setConversations(sorted.map((conversation) => ({
+        ...conversation,
+        unreadCount: conversation.unreadCounts?.[currentUserId] ?? conversation.unreadCount ?? 0,
+      })));
     } catch (err) {
       console.error('Failed to fetch conversations:', err);
       setError(err.response?.data?.message || 'Failed to load conversations');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchConversations();
@@ -41,7 +45,25 @@ export const useConversations = (activeConversationId = null) => {
 
   // Subscribe to real-time socket events
   useEffect(() => {
-    const unsubscribeNew = subscribe('message:new', (newMsg) => {
+    const upsertConversation = (conversation) => {
+      if (!conversation?._id && !conversation?.id) return;
+      const id = String(conversation._id || conversation.id);
+      setConversations((prev) => [
+        { ...conversation, unreadCount: conversation.unreadCounts?.[user?._id || user?.id] ?? 0 },
+        ...prev.filter((item) => String(item._id || item.id) !== id),
+      ]);
+    };
+
+    const unsubscribeConversation = subscribe('conversation:new', upsertConversation);
+    const unsubscribeUnread = subscribe('conversation:unread', ({ conversationId, unreadCount }) => {
+      setConversations((prev) => prev.map((conversation) =>
+        String(conversation._id || conversation.id) === String(conversationId)
+          ? { ...conversation, unreadCount }
+          : conversation
+      ));
+    });
+
+    const unsubscribeNew = subscribe('newMessage', (newMsg) => {
       const convId =
         newMsg.conversationId ||
         (typeof newMsg.conversation === 'object'
@@ -50,42 +72,28 @@ export const useConversations = (activeConversationId = null) => {
 
       if (!convId) return;
 
-      setConversations((prevList) => {
-        const existingIndex = prevList.findIndex(
-          (c) => (c._id || c.id) === convId
-        );
-
-        if (existingIndex > -1) {
-          const currentConv = prevList[existingIndex];
-          const isCurrentActive =
-            activeConversationId && (activeConversationId === convId);
-          const isSentByMe =
-            (newMsg.sender?._id || newMsg.sender) === (user?._id || user?.id);
-
-          const updatedConv = {
-            ...currentConv,
-            lastMessage: newMsg,
-            updatedAt: newMsg.createdAt || new Date().toISOString(),
-            unreadCount:
-              isCurrentActive || isSentByMe
-                ? 0
-                : (currentConv.unreadCount || 0) + 1,
-          };
-
-          const remaining = prevList.filter((_, idx) => idx !== existingIndex);
-          return [updatedConv, ...remaining];
-        } else {
-          // If conversation is brand new to this user, refetch full list
-          fetchConversations();
-          return prevList;
-        }
-      });
+      const current = conversations.find((c) => String(c._id || c.id) === String(convId));
+      if (!current) {
+        fetchConversations();
+        return;
+      }
+      const isCurrentActive = String(activeConversationId || '') === String(convId);
+      const isSentByMe = String(newMsg.sender?._id || newMsg.sender) === String(user?._id || user?.id);
+      setConversations((prevList) => [
+        {
+          ...current,
+          lastMessage: newMsg,
+          updatedAt: newMsg.createdAt || new Date().toISOString(),
+          unreadCount: isCurrentActive || isSentByMe ? 0 : (current.unreadCount || 0) + 1,
+        },
+        ...prevList.filter((c) => String(c._id || c.id) !== String(convId)),
+      ]);
     });
 
-    const unsubscribeDelete = subscribe('message:delete', ({ messageId, conversationId }) => {
+    const unsubscribeDelete = subscribe('message:deleted', ({ messageId, conversationId }) => {
       setConversations((prevList) =>
         prevList.map((c) => {
-          if ((c._id || c.id) === conversationId && c.lastMessage?._id === messageId) {
+          if (String(c._id || c.id) === String(conversationId) && String(c.lastMessage?._id) === String(messageId)) {
             return {
               ...c,
               lastMessage: {
@@ -100,7 +108,7 @@ export const useConversations = (activeConversationId = null) => {
       );
     });
 
-    const unsubscribeEdit = subscribe('message:edit', (editedMsg) => {
+    const unsubscribeEdit = subscribe('message:edited', (editedMsg) => {
       const convId =
         editedMsg.conversationId ||
         (typeof editedMsg.conversation === 'object'
@@ -109,7 +117,7 @@ export const useConversations = (activeConversationId = null) => {
 
       setConversations((prevList) =>
         prevList.map((c) => {
-          if ((c._id || c.id) === convId && c.lastMessage?._id === editedMsg._id) {
+          if (String(c._id || c.id) === String(convId) && String(c.lastMessage?._id) === String(editedMsg._id)) {
             return {
               ...c,
               lastMessage: editedMsg,
@@ -121,11 +129,13 @@ export const useConversations = (activeConversationId = null) => {
     });
 
     return () => {
+      unsubscribeConversation();
+      unsubscribeUnread();
       unsubscribeNew();
       unsubscribeDelete();
       unsubscribeEdit();
     };
-  }, [subscribe, activeConversationId, user, fetchConversations]);
+  }, [subscribe, activeConversationId, user, fetchConversations, conversations]);
 
   const markAsRead = useCallback(async (conversationId) => {
     if (!conversationId) return;

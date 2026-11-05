@@ -108,6 +108,17 @@ const emitToUser = (userId, event, data) => {
   ioInstance.to(`user:${uid}`).emit(event, data);
 };
 
+const emitToConversationParticipants = (conversation, event, data) => {
+  if (!ioInstance || !conversation) return;
+  const targets = (conversation.participants || []).map((participant) =>
+    `user:${participant._id ? participant._id.toString() : participant.toString()}`
+  );
+  if (!targets.length) return;
+  let emitter = ioInstance.to(targets[0]);
+  for (const room of targets.slice(1)) emitter = emitter.to(room);
+  emitter.emit(event, data);
+};
+
 module.exports = {
   setIO,
   getIO,
@@ -118,4 +129,5 @@ module.exports = {
   getOnlineUsers,
   isUserOnline,
   emitToUser,
+  emitToConversationParticipants,
 };

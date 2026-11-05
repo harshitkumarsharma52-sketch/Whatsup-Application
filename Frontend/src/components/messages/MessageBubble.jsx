@@ -28,6 +28,7 @@ export const MessageBubble = ({
   onDelete,
   onEdit,
   onReact,
+  onRetry,
   onMediaClick,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -163,14 +164,14 @@ export const MessageBubble = ({
 
   return (
     <div
-      className={`group relative flex items-end space-x-2 my-1 px-2 ${
+      className={`message-enter group relative flex items-end space-x-2 my-1 px-2 ${
         isOwn ? 'justify-end' : 'justify-start'
       }`}
     >
       {/* Sender Avatar if incoming and enabled */}
       {!isOwn && showAvatar && (
         <Avatar
-          src={message.sender?.avatar}
+          src={message.sender?.profilePicture?.url || message.sender?.avatar}
           name={senderName || 'User'}
           size="sm"
           className="mb-1"
@@ -260,6 +261,16 @@ export const MessageBubble = ({
           )}
           <span>{formatTime(message.createdAt)}</span>
           {renderStatusIcon()}
+          {isOwn && message.status === 'failed' && (
+            <button
+              type="button"
+              onClick={() => onRetry?.(message)}
+              className="ml-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-red-600 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500 dark:text-red-400 dark:hover:bg-red-950/40"
+              aria-label="Retry sending message"
+            >
+              Retry
+            </button>
+          )}
         </div>
 
         {/* Reactions List */}
@@ -293,7 +304,7 @@ export const MessageBubble = ({
       {!message.isDeleted && (
         <div
           ref={menuRef}
-          className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 mb-1 ${
+          className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center space-x-1 mb-1 ${
             isOwn ? 'order-first' : 'order-last'
           }`}
         >
@@ -345,7 +356,7 @@ export const MessageBubble = ({
             {/* Context Dropdown */}
             {showMenu && (
               <div
-                className={`absolute bottom-full mb-1 w-36 bg-white dark:bg-dark-header rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 z-30 ${
+                className={`absolute bottom-full mb-1 w-48 bg-white dark:bg-dark-header rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 z-30 ${
                   isOwn ? 'right-0' : 'left-0'
                 }`}
               >
@@ -383,17 +394,28 @@ export const MessageBubble = ({
                     Edit
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDelete?.(message._id || message.id);
+                    setShowMenu(false);
+                  }}
+                  className="w-full flex items-center px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-2" />
+                  Delete for me
+                </button>
                 {isOwn && (
                   <button
                     type="button"
                     onClick={() => {
-                      onDelete?.(message._id || message.id);
+                      onDelete?.(message._id || message.id, true);
                       setShowMenu(false);
                     }}
-                    className="w-full flex items-center px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    className="w-full flex items-center px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5 mr-2" />
-                    Delete
+                    Delete for everyone
                   </button>
                 )}
               </div>

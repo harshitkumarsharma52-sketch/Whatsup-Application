@@ -95,7 +95,7 @@ const messageSchema = new mongoose.Schema(
     idempotencyKey: {
       type: String,
       sparse: true,
-      index: true,
+      maxlength: 100,
     },
   },
   {
@@ -106,6 +106,10 @@ const messageSchema = new mongoose.Schema(
 // Indexes
 messageSchema.index({ conversation: 1, createdAt: -1 });
 messageSchema.index({ sender: 1, createdAt: -1 });
+messageSchema.index(
+  { conversation: 1, sender: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
 
 const Message = mongoose.model('Message', messageSchema);
 

@@ -63,33 +63,26 @@ const initChatSocket = (io) => {
     const userId = socket.user.id;
     socketService.setUserSocketId(userId, socket.id);
 
-    // Join personal room for targeted emits
+    // Join personal rooms synchronously so events can be delivered on the first tick.
+    socket.join(userId);
     socket.join(`user:${userId}`);
+    socket.emit('users:online', [...socketService.getOnlineUsers()]);
 
-    try {
-      // Mark user online in DB
-      await User.findByIdAndUpdate(userId, {
-        isOnline: true,
-        lastSeen: new Date(),
-      });
+    setImmediate(async () => {
+      try {
+        await User.findByIdAndUpdate(userId, {
+          isOnline: true,
+          lastSeen: new Date(),
+        });
 
-      // Join all conversation rooms the user belongs to
-      const userConversations = await Conversation.find({
-        participants: userId,
-      }).select('_id');
+        const userConversations = await Conversation.find({ participants: userId }).select('_id');
+        userConversations.forEach((conv) => socket.join(conv._id.toString()));
 
-      userConversations.forEach((conv) => {
-        socket.join(conv._id.toString());
-      });
-
-      // Notify contacts / active rooms that this user is online
-      io.emit('user:online', {
-        userId,
-        isOnline: true,
-      });
-    } catch (err) {
-      console.error(`[Socket] Connection setup error for user ${userId}:`, err.message);
-    }
+        io.emit('user:online', { userId, isOnline: true });
+      } catch (err) {
+        console.error(`[Socket] Connection setup error for user ${userId}:`, err.message);
+      }
+    });
 
     // EVENT: message:send
     socket.on('message:send', async (payload, callback) => {
@@ -127,9 +120,18 @@ const initChatSocket = (io) => {
           return;
         }
 
+        if (!['text', 'image', 'video', 'audio', 'document'].includes(messageType)) {
+          if (typeof callback === 'function') callback({ success: false, message: 'Invalid message type' });
+          return;
+        }
+        if (typeof text === 'string' && text.length > 4000) {
+          if (typeof callback === 'function') callback({ success: false, message: 'Message text exceeds 4000 characters' });
+          return;
+        }
+
         // Check idempotency to prevent duplicate message saves
         if (idempotencyKey) {
-          const existingMessage = await Message.findOne({ idempotencyKey })
+          const existingMessage = await Message.findOne({ idempotencyKey, conversation: conversationId, sender: userId })
             .populate('sender', 'username profilePicture isOnline')
             .populate('replyTo', 'text sender messageType media');
           if (existingMessage) {
@@ -177,11 +179,7 @@ const initChatSocket = (io) => {
           status: 'sent',
         });
 
-        // Update conversation: set lastMessage and increment unread counts for all other participants
-        const updates = {
-          lastMessage: newMessage._id,
-        };
-
+        // Update conversation: set lastMessage and increment unread counts for all other participants.
         conversation.participants.forEach((p) => {
           const pId = p.toString();
           if (pId !== userId) {
@@ -193,18 +191,38 @@ const initChatSocket = (io) => {
         conversation.lastMessage = newMessage._id;
         await conversation.save();
 
+        const recipientIsOnline = conversation.participants.some(
+          (participant) => participant.toString() !== userId && socketService.isUserOnline(participant)
+        );
+        if (recipientIsOnline) {
+          newMessage.status = 'delivered';
+          newMessage.deliveredAt = new Date();
+          await newMessage.save();
+        }
+
         const populatedMessage = await Message.findById(newMessage._id)
           .populate('sender', 'username profilePicture isOnline')
           .populate('replyTo', 'text sender messageType media');
 
         // Broadcast to all sockets in this conversation room
-        io.to(conversationId).emit('message:new', populatedMessage);
+        socketService.emitToConversationParticipants(conversation, 'newMessage', populatedMessage);
 
         // Acknowledge delivery to sender
-        socket.emit('message:delivered', {
-          messageId: newMessage._id,
-          conversationId,
-          deliveredAt: new Date(),
+        if (recipientIsOnline) {
+          socketService.emitToConversationParticipants(conversation, 'message:delivered', {
+            messageId: newMessage._id,
+            conversationId,
+            deliveredAt: newMessage.deliveredAt,
+          });
+        }
+        conversation.participants.forEach((participant) => {
+          const participantId = participant.toString();
+          if (participantId !== userId) {
+            socketService.emitToUser(participantId, 'conversation:unread', {
+              conversationId,
+              unreadCount: conversation.unreadCounts.get(participantId) || 0,
+            });
+          }
         });
 
         if (typeof callback === 'function') {
@@ -220,7 +238,7 @@ const initChatSocket = (io) => {
     // EVENT: message:read
     socket.on('message:read', async (payload, callback) => {
       try {
-        const { conversationId, messageIds } = payload || {};
+        const { conversationId, messageIds, messageId } = payload || {};
         if (!conversationId) {
           if (typeof callback === 'function') callback({ success: false, message: 'conversationId required' });
           return;
@@ -240,6 +258,9 @@ const initChatSocket = (io) => {
 
         if (Array.isArray(messageIds) && messageIds.length > 0) {
           filter._id = { $in: messageIds };
+        } else if (messageId) {
+          const target = await Message.findOne({ _id: messageId, conversation: conversationId }).select('createdAt');
+          if (target) filter.createdAt = { $lte: target.createdAt };
         }
 
         const readAt = new Date();
@@ -251,10 +272,8 @@ const initChatSocket = (io) => {
         });
 
         // Reset unread count for current user
-        if (conversation.unreadCounts.has(userId)) {
-          conversation.unreadCounts.set(userId, 0);
-          await conversation.save();
-        }
+        conversation.unreadCounts.set(userId, 0);
+        await conversation.save();
 
         const receipt = {
           conversationId,
@@ -262,9 +281,11 @@ const initChatSocket = (io) => {
           readAt,
           count: updateResult.modifiedCount,
           messageIds: messageIds || [],
+          lastReadMessageId: messageId || (messageIds && messageIds[messageIds.length - 1]) || null,
         };
 
         io.to(conversationId).emit('message:read', receipt);
+        socketService.emitToUser(userId, 'conversation:unread', { conversationId, unreadCount: 0 });
 
         if (typeof callback === 'function') {
           callback({ success: true, ...receipt });
@@ -362,6 +383,12 @@ const initChatSocket = (io) => {
           return;
         }
 
+        const conversation = await Conversation.findById(message.conversation);
+        if (!conversation || !conversation.isParticipant(userId)) {
+          if (typeof callback === 'function') callback({ success: false, message: 'Unauthorized' });
+          return;
+        }
+
         // Validate sender ownership
         if (message.sender.toString() !== userId) {
           if (typeof callback === 'function') {
@@ -404,8 +431,10 @@ const initChatSocket = (io) => {
     });
 
     // EVENT: typing:start
-    socket.on('typing:start', async ({ conversationId }) => {
+    socket.on('typing:start', async ({ conversationId } = {}) => {
       if (!conversationId) return;
+      const conversation = await Conversation.findById(conversationId).select('participants');
+      if (!conversation || !conversation.isParticipant(userId)) return;
       socket.to(conversationId).emit('typing:start', {
         conversationId,
         userId,
@@ -414,8 +443,10 @@ const initChatSocket = (io) => {
     });
 
     // EVENT: typing:stop
-    socket.on('typing:stop', async ({ conversationId }) => {
+    socket.on('typing:stop', async ({ conversationId } = {}) => {
       if (!conversationId) return;
+      const conversation = await Conversation.findById(conversationId).select('participants');
+      if (!conversation || !conversation.isParticipant(userId)) return;
       socket.to(conversationId).emit('typing:stop', {
         conversationId,
         userId,

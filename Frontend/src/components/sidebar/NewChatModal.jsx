@@ -115,14 +115,13 @@ export const NewChatModal = ({
       setIsCreating(true);
       const participantIds = selectedUsers.map((u) => u._id || u.id);
 
-      const res = await api.post('/conversations', {
-        name: groupName.trim(),
-        participants: participantIds,
-        isGroup: true,
-        groupImage: groupImage.trim() || undefined,
+      const res = await api.post('/groups', {
+        groupName: groupName.trim(),
+        participantIds,
+        groupImage: groupImage.trim() ? { url: groupImage.trim(), fileId: '' } : undefined,
       });
 
-      const conv = res.data?.conversation || res.data?.data || res.data;
+      const conv = res.data?.group || res.data?.conversation || res.data?.data || res.data;
       toast.success(`Group "${groupName}" created!`);
       onConversationCreated(conv);
       handleClose();
@@ -205,7 +204,7 @@ export const NewChatModal = ({
                     className="flex items-center px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-dark-input/60 rounded-xl cursor-pointer transition-colors"
                   >
                     <Avatar
-                      src={targetUser.avatar}
+                      src={targetUser.profilePicture?.url || targetUser.avatar}
                       name={targetUser.username}
                       size="sm"
                       className="mr-3"
@@ -317,7 +316,7 @@ export const NewChatModal = ({
                   >
                     <div className="flex items-center space-x-2 min-w-0">
                       <Avatar
-                        src={targetUser.avatar}
+                        src={targetUser.profilePicture?.url || targetUser.avatar}
                         name={targetUser.username}
                         size="sm"
                       />

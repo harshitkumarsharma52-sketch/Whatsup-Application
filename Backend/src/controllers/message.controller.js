@@ -41,7 +41,7 @@ const sendMessage = async (req, res, next) => {
 
     // Idempotency check: prevent duplicate message submissions
     if (idempotencyKey) {
-      const existing = await Message.findOne({ idempotencyKey })
+      const existing = await Message.findOne({ idempotencyKey, conversation: conversationId, sender: senderId })
         .populate('sender', 'username profilePicture isOnline')
         .populate({
           path: 'replyTo',
@@ -109,6 +109,15 @@ const sendMessage = async (req, res, next) => {
     });
     await conversation.save();
 
+    const recipientIsOnline = conversation.participants.some(
+      (participant) => participant.toString() !== senderId && socketService.isUserOnline(participant)
+    );
+    if (recipientIsOnline) {
+      newMessage.status = 'delivered';
+      newMessage.deliveredAt = new Date();
+      await newMessage.save();
+    }
+
     const populatedMessage = await Message.findById(newMessage._id)
       .populate('sender', 'username profilePicture isOnline')
       .populate({
@@ -118,8 +127,24 @@ const sendMessage = async (req, res, next) => {
 
     // Broadcast message via Socket.IO
     try {
-      const io = socketService.getIO();
-      io.to(conversationId).emit('message:new', populatedMessage);
+      socketService.getIO();
+      socketService.emitToConversationParticipants(conversation, 'newMessage', populatedMessage);
+      if (recipientIsOnline) {
+        socketService.emitToConversationParticipants(conversation, 'message:delivered', {
+          messageId: populatedMessage._id,
+          conversationId,
+          deliveredAt: newMessage.deliveredAt,
+        });
+      }
+      for (const participant of conversation.participants) {
+        const participantId = participant.toString();
+        if (participantId !== senderId) {
+          socketService.emitToUser(participantId, 'conversation:unread', {
+            conversationId,
+            unreadCount: conversation.unreadCounts.get(participantId) || 0,
+          });
+        }
+      }
     } catch {
       // Socket emission is non-blocking for HTTP response
     }
@@ -226,6 +251,15 @@ const editMessage = async (req, res, next) => {
         success: false,
         message: 'Message not found',
         code: 'MESSAGE_NOT_FOUND',
+      });
+    }
+
+    const conversation = await Conversation.findById(message.conversation);
+    if (!conversation || !conversation.isParticipant(currentUserId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You are not a participant in this conversation',
+        code: 'FORBIDDEN',
       });
     }
 
@@ -524,6 +558,11 @@ const markAsRead = async (req, res, next) => {
       const io = socketService.getIO();
       io.to(conversation._id.toString()).emit('message:read', receipt);
     } catch {}
+
+    socketService.emitToUser(currentUserId, 'conversation:unread', {
+      conversationId: conversation._id,
+      unreadCount: 0,
+    });
 
     return res.status(200).json({
       success: true,

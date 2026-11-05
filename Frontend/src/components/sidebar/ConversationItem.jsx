@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 export const ConversationItem = ({
   conversation,
   isSelected = false,
+  animationIndex = 0,
   onClick,
 }) => {
   const { user } = useAuth();
@@ -23,14 +24,14 @@ export const ConversationItem = ({
       ) || conversation.recipient;
 
   const title = isGroup
-    ? conversation.name || 'Group Chat'
+    ? conversation.groupName || conversation.name || 'Group Chat'
     : otherParticipant?.username ||
       otherParticipant?.name ||
       'Chat';
 
   const avatarSrc = isGroup
-    ? conversation.groupImage || conversation.avatar
-    : otherParticipant?.avatar;
+    ? conversation.groupImage?.url || conversation.groupImage || conversation.avatar
+    : otherParticipant?.profilePicture?.url || otherParticipant?.avatar;
 
   const isOnline = otherParticipant
     ? isUserOnline(otherParticipant._id || otherParticipant.id)
@@ -71,7 +72,11 @@ export const ConversationItem = ({
       (lastMsg.sender?._id || lastMsg.sender) === (user?._id || user?.id);
     const prefix = isOwn ? 'You: ' : '';
 
-    if (lastMsg.mediaType?.startsWith('image/')) {
+    const mediaType = lastMsg.mediaType || lastMsg.media?.mimeType || '';
+    const mediaUrl = lastMsg.mediaUrl || lastMsg.media?.url;
+    const content = lastMsg.content || lastMsg.text || '';
+
+    if (mediaType.startsWith('image/')) {
       return (
         <span className="flex items-center">
           <Image className="w-3.5 h-3.5 mr-1 text-gray-400" />
@@ -80,7 +85,7 @@ export const ConversationItem = ({
       );
     }
 
-    if (lastMsg.mediaType?.startsWith('video/')) {
+    if (mediaType.startsWith('video/')) {
       return (
         <span className="flex items-center">
           <Video className="w-3.5 h-3.5 mr-1 text-gray-400" />
@@ -89,7 +94,7 @@ export const ConversationItem = ({
       );
     }
 
-    if (lastMsg.mediaType?.startsWith('audio/')) {
+    if (mediaType.startsWith('audio/')) {
       return (
         <span className="flex items-center">
           <Music className="w-3.5 h-3.5 mr-1 text-gray-400" />
@@ -98,7 +103,7 @@ export const ConversationItem = ({
       );
     }
 
-    if (lastMsg.mediaUrl) {
+    if (mediaUrl) {
       return (
         <span className="flex items-center">
           <FileText className="w-3.5 h-3.5 mr-1 text-gray-400" />
@@ -107,7 +112,7 @@ export const ConversationItem = ({
       );
     }
 
-    return <span>{prefix}{truncateText(lastMsg.content, 35)}</span>;
+    return <span>{prefix}{truncateText(content, 35)}</span>;
   };
 
   const timestamp = lastMsg?.createdAt || conversation.updatedAt;
@@ -115,7 +120,8 @@ export const ConversationItem = ({
   return (
     <div
       onClick={onClick}
-      className={`flex items-center px-4 py-3 cursor-pointer transition-colors border-b border-gray-100 dark:border-gray-800/40 select-none ${
+      style={{ '--item-index': animationIndex }}
+      className={`conversation-enter flex items-center px-4 py-3 cursor-pointer transition-all duration-200 hover:-translate-y-px active:scale-[0.99] border-b border-gray-100 dark:border-gray-800/40 select-none ${
         isSelected
           ? 'bg-gray-100 dark:bg-dark-input'
           : 'hover:bg-gray-50 dark:hover:bg-dark-input/50'

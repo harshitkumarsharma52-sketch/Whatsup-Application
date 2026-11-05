@@ -24,7 +24,7 @@ export const Profile = () => {
 
   const [username, setUsername] = useState(user?.username || '');
   const [bio, setBio] = useState(user?.bio || '');
-  const [avatarPreview, setAvatarPreview] = useState(user?.avatar || '');
+  const [avatarPreview, setAvatarPreview] = useState(user?.profilePicture?.url || user?.avatar || '');
   const [avatarFile, setAvatarFile] = useState(null);
 
   // Password change state
@@ -67,55 +67,35 @@ export const Profile = () => {
     try {
       setIsSavingProfile(true);
 
-      let finalAvatarUrl = avatarPreview;
+      let profilePicture = user?.profilePicture || { url: '', fileId: '' };
 
       // If user selected a new avatar file, upload it first
       if (avatarFile) {
         const formData = new FormData();
         formData.append('file', avatarFile);
-        try {
-          const uploadRes = await api.post('/upload', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-          });
-          finalAvatarUrl =
-            uploadRes.data?.url ||
-            uploadRes.data?.fileUrl ||
-            uploadRes.data?.data?.url;
-        } catch (uploadErr) {
-          // If /upload doesn't work, try /messages/upload or keep data url
-          try {
-            const uploadRes2 = await api.post('/messages/upload', formData, {
-              headers: { 'Content-Type': 'multipart/form-data' },
-            });
-            finalAvatarUrl =
-              uploadRes2.data?.url ||
-              uploadRes2.data?.fileUrl ||
-              uploadRes2.data?.data?.url;
-          } catch {
-            // Keep preview
-          }
+        const uploadRes = await api.post('/media/upload', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        profilePicture = uploadRes.data?.media;
+        if (!profilePicture?.url || !profilePicture?.fileId) {
+          throw new Error('The uploaded image response was incomplete');
         }
+      } else if (!avatarPreview) {
+        profilePicture = { url: '', fileId: '' };
       }
 
       const payload = {
         username: username.trim(),
         bio: bio.trim(),
-        avatar: finalAvatarUrl || null,
+        profilePicture,
       };
 
-      let res;
-      try {
-        res = await api.put('/users/profile', payload);
-      } catch {
-        try {
-          res = await api.put('/users/me', payload);
-        } catch {
-          res = await api.put('/auth/profile', payload);
-        }
-      }
+      const res = await api.put('/users/profile', payload);
 
-      const updatedUser = res?.data?.user || res?.data?.data || payload;
+      const updatedUser = res?.data?.user || payload;
       updateUser(updatedUser);
+      setAvatarPreview(updatedUser.profilePicture?.url || '');
+      setAvatarFile(null);
       toast.success('Profile updated successfully!');
     } catch (err) {
       console.error('Failed to update profile:', err);
@@ -151,11 +131,7 @@ export const Profile = () => {
         newPassword,
       };
 
-      try {
-        await api.put('/users/change-password', payload);
-      } catch {
-        await api.put('/auth/change-password', payload);
-      }
+      await api.put('/users/change-password', payload);
 
       toast.success('Password changed successfully!');
       setCurrentPassword('');

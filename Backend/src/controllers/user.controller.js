@@ -126,8 +126,8 @@ const updateProfile = async (req, res, next) => {
 
     if (profilePicture && typeof profilePicture === 'object') {
       user.profilePicture = {
-        url: profilePicture.url || user.profilePicture.url,
-        fileId: profilePicture.fileId || user.profilePicture.fileId,
+        url: typeof profilePicture.url === 'string' ? profilePicture.url : user.profilePicture.url,
+        fileId: typeof profilePicture.fileId === 'string' ? profilePicture.fileId : user.profilePicture.fileId,
       };
     }
 
