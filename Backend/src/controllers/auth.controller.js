@@ -19,6 +19,20 @@ const parseExpiresInToMs = (str, defaultMs) => {
 const ACCESS_EXPIRES_IN = process.env.JWT_ACCESS_EXPIRES_IN || '15m';
 const REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 const REFRESH_EXPIRES_IN_MS = parseExpiresInToMs(REFRESH_EXPIRES_IN, 7 * 24 * 60 * 60 * 1000);
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// The frontend and API are hosted on separate Render domains. In browsers
+// that block third-party cookies, a partitioned cookie is still sent when the
+// user returns to this specific frontend. It is ignored safely by browsers
+// that do not implement CHIPS yet.
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: IS_PRODUCTION,
+  sameSite: IS_PRODUCTION ? 'none' : 'lax',
+  partitioned: IS_PRODUCTION,
+  priority: 'high',
+  path: '/api/auth',
+};
 
 /**
  * Generates an Access Token and a Refresh Token for a user.
@@ -47,11 +61,8 @@ const generateTokens = (user) => {
  */
 const setRefreshCookie = (res, token) => {
   res.cookie('refreshToken', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    ...refreshCookieOptions,
     maxAge: REFRESH_EXPIRES_IN_MS,
-    path: '/api/auth',
   });
 };
 
@@ -59,12 +70,7 @@ const setRefreshCookie = (res, token) => {
  * Clears the Refresh Token cookie.
  */
 const clearRefreshCookie = (res) => {
-  res.clearCookie('refreshToken', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    path: '/api/auth',
-  });
+  res.clearCookie('refreshToken', refreshCookieOptions);
 };
 
 /**
