@@ -41,6 +41,15 @@ const userSchema = new mongoose.Schema(
       fileId: { type: String, default: '' },
     },
 
+    // A small, client-compressed (256px JPEG) display picture.  Keeping this
+    // separate from the legacy ImageKit shape makes it safe to remove external
+    // image storage without breaking existing accounts.
+    avatar: {
+      type: String,
+      default: '',
+      maxlength: [205000, 'Avatar is too large'],
+    },
+
     bio: {
       type: String,
       maxlength: [200, 'Bio cannot exceed 200 characters'],

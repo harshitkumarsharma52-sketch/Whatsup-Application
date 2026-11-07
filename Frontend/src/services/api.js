@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { API_URL } from './apiUrl';
 
-let memoryToken = null;
+let memoryToken = typeof window !== 'undefined' ? localStorage.getItem('chat_token') : null;
 let isRefreshing = false;
 let failedQueue = [];
 let refreshPromise = null;
@@ -20,6 +20,7 @@ const processQueue = (error, token = null) => {
 
 export const setAccessToken = (token) => {
   memoryToken = token;
+  if (token && typeof window !== 'undefined') localStorage.setItem('chat_token', token);
 };
 
 export const getAccessToken = () => {
@@ -28,6 +29,7 @@ export const getAccessToken = () => {
 
 export const clearAccessToken = () => {
   memoryToken = null;
+  if (typeof window !== 'undefined') localStorage.removeItem('chat_token');
 };
 
 export const refreshAccessToken = () => {

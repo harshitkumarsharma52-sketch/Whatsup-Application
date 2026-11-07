@@ -10,6 +10,8 @@ const { configuredOrigins: clientOrigins, isAllowedOrigin } = require('./config/
 
 // Middlewares
 const { notFound, errorHandler } = require('./middleware/error.middleware');
+const { authenticateToken } = require('./middleware/auth.middleware');
+const authController = require('./controllers/auth.controller');
 
 // Routes
 const authRoutes = require('./routes/auth.routes');
@@ -103,6 +105,9 @@ app.get('/api/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+// Short aliases used by the persistent mobile/web client.
+app.get('/api/me', authenticateToken, authController.me);
+app.put('/api/avatar', authenticateToken, authController.updateAvatar);
 app.use('/api/users', userRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/messages', messageRoutes);

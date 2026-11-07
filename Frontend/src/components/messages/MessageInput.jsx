@@ -14,6 +14,12 @@ import { useSocket } from '../../context/SocketContext';
 
 const EmojiPicker = lazy(() => import('./EmojiPicker'));
 
+// Shared button look: works without any custom Tailwind config
+const ICON_BTN =
+  'p-2.5 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 ' +
+  'hover:bg-gray-100 dark:hover:bg-dark-input transition-colors ' +
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-50';
+
 export const MessageInput = ({
   conversationId,
   onSendMessage,
@@ -38,6 +44,7 @@ export const MessageInput = ({
   const mediaRecorderRef = useRef(null);
   const recordingChunksRef = useRef([]);
   const discardRecordingRef = useRef(false);
+  const sendingRef = useRef(false); // blocks double-send (fast Enter / double tap)
 
   // Auto-resize textarea
   useEffect(() => {
@@ -48,12 +55,15 @@ export const MessageInput = ({
     }
   }, [text]);
 
-  // Clean up typing indicator on unmount
+  // Clean up typing indicator and recording on unmount
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-      if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        discardRecordingRef.current = true;
+        mediaRecorderRef.current.stop();
+      }
       if (isTypingRef.current && conversationId) {
         emitTypingStop(conversationId);
       }
@@ -100,62 +110,48 @@ export const MessageInput = ({
       }
       setSelectedFile(file);
     }
-    // reset input
+    // reset input so the same file can be picked again
     e.target.value = '';
   };
 
-  const uploadSelectedFile = async (file) => {
+  const uploadTo = async (endpoint, file) => {
     const formData = new FormData();
     formData.append('file', file);
+    const res = await api.post(endpoint, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        const percent = Math.round(
+          (progressEvent.loaded * 100) / (progressEvent.total || 1)
+        );
+        setUploadProgress(percent);
+      },
+    });
+    const media = res.data?.media || res.data;
+    return {
+      url: media?.url || media?.fileUrl || res.data?.url,
+      fileId: media?.fileId,
+      fileName: media?.fileName || file.name,
+      fileType: media?.fileType,
+      mimeType: media?.mimeType || file.type,
+      fileSize: media?.fileSize || file.size,
+      thumbnailUrl: media?.thumbnailUrl,
+    };
+  };
 
+  const uploadSelectedFile = async (file) => {
     try {
-      const res = await api.post('/media/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: (progressEvent) => {
-          const percent = Math.round(
-            (progressEvent.loaded * 100) / (progressEvent.total || 1)
-          );
-          setUploadProgress(percent);
-        },
-      });
-
-      const media = res.data?.media || res.data;
-      return {
-        url: media?.url || media?.fileUrl || res.data?.url,
-        fileId: media?.fileId,
-        fileName: media?.fileName || file.name,
-        fileType: media?.fileType,
-        mimeType: media?.mimeType || file.type,
-        fileSize: media?.fileSize || file.size,
-        thumbnailUrl: media?.thumbnailUrl,
-      };
-    } catch (err) {
-      // Fallback try /upload
-      const res2 = await api.post('/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: (progressEvent) => {
-          const percent = Math.round(
-            (progressEvent.loaded * 100) / (progressEvent.total || 1)
-          );
-          setUploadProgress(percent);
-        },
-      });
-      const media2 = res2.data?.media || res2.data;
-      return {
-        url: media2?.url || media2?.fileUrl || res2.data?.url,
-        fileId: media2?.fileId,
-        fileName: media2?.fileName || file.name,
-        fileType: media2?.fileType,
-        mimeType: media2?.mimeType || file.type,
-        fileSize: media2?.fileSize || file.size,
-        thumbnailUrl: media2?.thumbnailUrl,
-      };
+      return await uploadTo('/media/upload', file);
+    } catch {
+      // Fallback endpoint
+      return await uploadTo('/upload', file);
     }
   };
 
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed && !selectedFile) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
 
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
@@ -186,22 +182,21 @@ export const MessageInput = ({
       // Clear input fields
       setText('');
       setSelectedFile(null);
-      setUploadProgress(null);
       if (onCancelReply) onCancelReply();
-
-      // Reset height
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
     } catch (error) {
       toast.error(error.response?.data?.message || error.message || 'Failed to send message');
       console.error(error);
     } finally {
+      sendingRef.current = false;
       setUploadProgress(null);
+      // keep the keyboard open on mobile after sending
+      setTimeout(() => textareaRef.current?.focus(), 0);
     }
   };
 
   const handleKeyDown = (e) => {
+    // ignore Enter while an IME (Hindi/Chinese keyboards) is composing text
+    if (e.nativeEvent?.isComposing) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -210,9 +205,7 @@ export const MessageInput = ({
 
   const handleEmojiSelect = (emoji) => {
     setText((prev) => prev + emoji);
-    if (textareaRef.current) {
-      textareaRef.current.focus();
-    }
+    textareaRef.current?.focus();
   };
 
   const toggleRecording = async () => {
@@ -255,7 +248,9 @@ export const MessageInput = ({
 
   const cancelRecording = () => {
     discardRecordingRef.current = true;
-    if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
     clearInterval(recordingTimerRef.current);
     setIsRecording(false);
     setRecordingSeconds(0);
@@ -270,7 +265,8 @@ export const MessageInput = ({
   const isUploading = uploadProgress !== null;
 
   return (
-    <div className="safe-area-bottom sticky bottom-0 z-30 flex-shrink-0 border-t border-gray-200 bg-white p-3 transition-colors dark:border-gray-800 dark:bg-dark-header">
+    // pb uses the phone's home-bar inset directly, so no custom CSS class is needed
+    <div className="sticky bottom-0 z-30 shrink-0 border-t border-gray-200 bg-white px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-colors dark:border-gray-800 dark:bg-dark-header">
       {/* Reply Preview */}
       <ReplyPreview replyTo={replyTo} onCancel={onCancelReply} />
 
@@ -301,9 +297,9 @@ export const MessageInput = ({
 
       {/* Input controls row */}
       {isRecording ? (
-        <div className="flex items-center justify-between px-4 py-2 bg-red-50 dark:bg-red-950/30 rounded-full border border-red-200 dark:border-red-800">
+        <div className="flex items-center justify-between rounded-full border border-red-200 bg-red-50 px-4 py-2 dark:border-red-800 dark:bg-red-950/30">
           <div className="flex items-center space-x-2">
-            <span className="w-3 h-3 bg-red-500 rounded-full animate-ping" />
+            <span className="h-3 w-3 animate-ping rounded-full bg-red-500" />
             <span className="text-sm font-medium text-red-600 dark:text-red-400">
               Recording {formatRecordTime(recordingSeconds)}
             </span>
@@ -312,17 +308,18 @@ export const MessageInput = ({
             <button
               type="button"
               onClick={cancelRecording}
-              className="px-3 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400"
+              className="rounded px-3 py-1 text-xs text-gray-500 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-gray-400"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={toggleRecording}
-              className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-full"
+              className="rounded-full bg-red-500 p-2 text-white hover:bg-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
               title="Stop and send"
+              aria-label="Stop recording"
             >
-              <MicOff className="w-4 h-4" />
+              <MicOff className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -333,10 +330,11 @@ export const MessageInput = ({
             type="button"
             data-emoji-trigger
             onClick={() => setShowEmojiPicker((prev) => !prev)}
-            className="p-2.5 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-dark-input transition-colors focus:outline-none"
+            className={ICON_BTN}
             title="Choose emoji"
+            aria-label="Choose emoji"
           >
-            <Smile className="w-5 h-5" />
+            <Smile className="h-5 w-5" />
           </button>
 
           {/* Attachment button */}
@@ -344,23 +342,26 @@ export const MessageInput = ({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
-            className="p-2.5 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-dark-input transition-colors focus:outline-none disabled:opacity-50"
+            className={ICON_BTN}
             title="Attach file"
+            aria-label="Attach file"
           >
-            <Paperclip className="w-5 h-5" />
+            <Paperclip className="h-5 w-5" />
           </button>
 
           {/* Auto-expanding Textarea */}
-          <div className="flex-1 min-w-0 bg-chat-input dark:bg-dark-input rounded-2xl px-4 py-2 border border-transparent focus-within:border-primary-500 transition-colors">
+          <div className="min-w-0 flex-1 rounded-2xl border border-transparent bg-gray-100 px-4 py-2 transition-colors focus-within:border-primary-500 dark:bg-dark-input">
             <textarea
               ref={textareaRef}
+              style={{ outline: 'none', boxShadow: 'none' }} // beats the global textarea:focus-visible outline
               rows={1}
               value={text}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               disabled={disabled || isUploading}
               placeholder="Type a message..."
-              className="w-full bg-transparent text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 outline-none resize-none max-h-32 leading-5"
+              aria-label="Type a message"
+              className="max-h-32 w-full resize-none bg-transparent text-sm leading-5 text-gray-900 placeholder-gray-500 outline-none dark:text-gray-100 dark:placeholder-gray-400"
             />
           </div>
 
@@ -370,19 +371,21 @@ export const MessageInput = ({
               type="button"
               onClick={handleSend}
               disabled={disabled || isUploading}
-              className="p-2.5 rounded-full bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white shadow-md transition-all transform hover:scale-105 active:scale-95 focus:outline-none disabled:opacity-50"
+              className="transform rounded-full bg-primary-500 p-2.5 text-white shadow-md transition-all hover:scale-105 hover:bg-primary-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 active:scale-95 active:bg-primary-700 disabled:opacity-50"
               title="Send message"
+              aria-label="Send message"
             >
-              <Send className="w-5 h-5 ml-0.5" />
+              <Send className="ml-0.5 h-5 w-5" />
             </button>
           ) : (
             <button
               type="button"
               onClick={toggleRecording}
-              className="p-2.5 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-dark-input transition-colors focus:outline-none"
+              className={ICON_BTN}
               title="Record voice message"
+              aria-label="Record voice message"
             >
-              <Mic className="w-5 h-5" />
+              <Mic className="h-5 w-5" />
             </button>
           )}
         </div>

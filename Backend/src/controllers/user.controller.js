@@ -41,7 +41,7 @@ const searchUsers = async (req, res, next) => {
 
     const [users, total] = await Promise.all([
       User.find(searchQuery)
-        .select('username profilePicture bio isOnline lastSeen')
+        .select('username profilePicture avatar bio isOnline lastSeen')
         .skip(skip)
         .limit(limitNum)
         .lean(),
@@ -71,7 +71,7 @@ const getUserById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const user = await User.findById(id).select('username profilePicture bio isOnline lastSeen');
+    const user = await User.findById(id).select('username profilePicture avatar bio isOnline lastSeen');
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -141,6 +141,7 @@ const updateProfile = async (req, res, next) => {
         username: user.username,
         email: user.email,
         profilePicture: user.profilePicture,
+        avatar: user.avatar,
         bio: user.bio,
         isOnline: user.isOnline,
         lastSeen: user.lastSeen,
@@ -231,7 +232,7 @@ const getBlockedUsers = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id).populate(
       'blockedUsers',
-      'username profilePicture isOnline lastSeen'
+      'username profilePicture avatar isOnline lastSeen'
     );
 
     if (!user) {

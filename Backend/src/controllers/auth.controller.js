@@ -16,7 +16,8 @@ const parseExpiresInToMs = (str, defaultMs) => {
   return defaultMs;
 };
 
-const ACCESS_EXPIRES_IN = process.env.JWT_ACCESS_EXPIRES_IN || '15m';
+// Persistent-login policy: access JWTs intentionally have no exp claim.
+const ACCESS_EXPIRES_IN = null;
 const REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 const REFRESH_EXPIRES_IN_MS = parseExpiresInToMs(REFRESH_EXPIRES_IN, 7 * 24 * 60 * 60 * 1000);
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -43,10 +44,13 @@ const generateTokens = (user) => {
     email: user.email,
   };
 
-  const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, {
-    expiresIn: ACCESS_EXPIRES_IN,
-    algorithm: 'HS256',
-  });
+  // A deliberately persistent device token. Logout is the revocation action;
+  // do not add expiresIn unless you also change the client persistence policy.
+  const accessToken = jwt.sign(
+    payload,
+    process.env.JWT_ACCESS_SECRET,
+    ACCESS_EXPIRES_IN ? { expiresIn: ACCESS_EXPIRES_IN, algorithm: 'HS256' } : { algorithm: 'HS256' }
+  );
 
   const refreshToken = jwt.sign({ id: user._id.toString() }, process.env.JWT_REFRESH_SECRET, {
     expiresIn: REFRESH_EXPIRES_IN,
@@ -129,6 +133,7 @@ const register = async (req, res, next) => {
         username: newUser.username,
         email: newUser.email,
         profilePicture: newUser.profilePicture,
+        avatar: newUser.avatar,
         bio: newUser.bio,
         isOnline: newUser.isOnline,
         lastSeen: newUser.lastSeen,
@@ -172,6 +177,7 @@ const login = async (req, res, next) => {
         username: user.username,
         email: user.email,
         profilePicture: user.profilePicture,
+        avatar: user.avatar,
         bio: user.bio,
         isOnline: user.isOnline,
         lastSeen: user.lastSeen,
@@ -360,6 +366,7 @@ const me = async (req, res, next) => {
         username: user.username,
         email: user.email,
         profilePicture: user.profilePicture,
+        avatar: user.avatar,
         bio: user.bio,
         isOnline: user.isOnline,
         lastSeen: user.lastSeen,
@@ -371,6 +378,26 @@ const me = async (req, res, next) => {
   }
 };
 
+/** PUT /api/avatar - stores a 256px client-compressed JPEG data URL. */
+const updateAvatar = async (req, res, next) => {
+  try {
+    const avatar = req.body?.avatar;
+    if (avatar !== '' && (typeof avatar !== 'string' || !/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(avatar))) {
+      return res.status(400).json({ success: false, message: 'Avatar must be a JPEG data URL', code: 'INVALID_AVATAR' });
+    }
+    const bytes = avatar ? Buffer.from(avatar.split(',')[1], 'base64').length : 0;
+    if (bytes > 150 * 1024) {
+      return res.status(413).json({ success: false, message: 'Avatar must be 150KB or smaller', code: 'AVATAR_TOO_LARGE' });
+    }
+    const user = await User.findByIdAndUpdate(req.user.id, { avatar }, { new: true });
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    // Any connected contact can update their cached avatar immediately.
+    try { require('../services/socket.service').getIO().emit('user:avatar', { userId: user._id.toString(), avatar }); } catch {}
+    return res.json({ success: true, user: { id: user._id, username: user.username, email: user.email, avatar: user.avatar, profilePicture: user.profilePicture } });
+  } catch (error) { next(error); }
+};
+
 module.exports = {
   register,
   login,
@@ -380,4 +407,5 @@ module.exports = {
   generateTokens,
   setRefreshCookie,
   clearRefreshCookie,
+  updateAvatar,
 };

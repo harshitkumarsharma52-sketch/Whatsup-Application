@@ -1,12 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import api, { setAccessToken, clearAccessToken, refreshAccessToken } from '../services/api';
+import api, { setAccessToken, getAccessToken, clearAccessToken } from '../services/api';
 import { disconnectSocket } from '../services/socket';
 
 const AuthContext = createContext(null);
 
+const readSavedUser = () => {
+  try { return JSON.parse(localStorage.getItem('chat_user') || 'null'); } catch { return null; }
+};
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [accessToken, setAccessTokenState] = useState(null);
+  const [user, setUser] = useState(() => typeof window !== 'undefined' ? readSavedUser() : null);
+  const [accessToken, setAccessTokenState] = useState(() => getAccessToken());
   const [isLoading, setIsLoading] = useState(true);
 
   const extractAuthData = (data) => {
@@ -30,28 +34,22 @@ export const AuthProvider = ({ children }) => {
 
     const restoreSession = async () => {
       try {
-        // Try refresh first to obtain an in-memory access token via HTTP-only cookie
-        const refreshRes = await refreshAccessToken();
-        const { token, user: refreshedUser } = extractAuthData(refreshRes.data);
-
-        if (token) {
-          setAccessToken(token);
-          if (isMounted) setAccessTokenState(token);
-        }
-
-        if (refreshedUser) {
-          if (isMounted) setUser(refreshedUser);
-        } else {
-          // If refresh returned token but not user, fetch /auth/me
-          const meRes = await api.get('/auth/me');
-          const { user: meUser } = extractAuthData(meRes.data);
-          if (isMounted) setUser(meUser || meRes.data);
-        }
-      } catch {
-        clearAccessToken();
-        if (isMounted) {
-          setUser(null);
-          setAccessTokenState(null);
+        const token = getAccessToken();
+        if (!token) return;
+        setAccessToken(token);
+        if (isMounted) setAccessTokenState(token);
+        const meRes = await api.get('/me');
+        const { user: meUser } = extractAuthData(meRes.data);
+        if (isMounted) setUser(meUser || meRes.data);
+      } catch (error) {
+        // Do not log somebody out merely because the device is offline or
+        // Render is waking up. A definitive 401 is the only automatic logout.
+        if (error.response?.status === 401) {
+          clearAccessToken();
+          if (isMounted) {
+            setUser(null);
+            setAccessTokenState(null);
+          }
         }
       } finally {
         if (isMounted) {
@@ -68,6 +66,15 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    navigator.storage?.persist?.().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (user) localStorage.setItem('chat_user', JSON.stringify(user));
+    else localStorage.removeItem('chat_user');
+  }, [user]);
+
+  useEffect(() => {
     const handleTokenRefreshed = (event) => {
       const token = event.detail;
       if (token) setAccessTokenState(token);
@@ -75,6 +82,7 @@ export const AuthProvider = ({ children }) => {
     const handleSessionExpired = () => {
       clearAccessToken();
       disconnectSocket();
+      localStorage.removeItem('chat_user');
       setUser(null);
       setAccessTokenState(null);
     };
@@ -122,6 +130,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       clearAccessToken();
       disconnectSocket();
+      localStorage.removeItem('chat_user');
       setUser(null);
       setAccessTokenState(null);
     }
@@ -134,25 +143,7 @@ export const AuthProvider = ({ children }) => {
     });
   }, []);
 
-  const refreshAuth = useCallback(async () => {
-    try {
-      const response = await refreshAccessToken();
-      const { token, user: refreshedUser } = extractAuthData(response.data);
-      if (token) {
-        setAccessToken(token);
-        setAccessTokenState(token);
-      }
-      if (refreshedUser) {
-        setUser(refreshedUser);
-      }
-      return token;
-    } catch (err) {
-      clearAccessToken();
-      setUser(null);
-      setAccessTokenState(null);
-      throw err;
-    }
-  }, []);
+  const refreshAuth = useCallback(async () => getAccessToken(), []);
 
   const value = {
     user,

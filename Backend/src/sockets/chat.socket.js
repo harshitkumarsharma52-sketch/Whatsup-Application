@@ -32,7 +32,7 @@ const initChatSocket = (io) => {
         socket.handshake.query?.token;
 
       if (!token) {
-        return next(new Error('Authentication error: Missing token'));
+        return next(new Error('unauthorized'));
       }
 
       const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET, {
@@ -41,7 +41,7 @@ const initChatSocket = (io) => {
 
       const user = await User.findById(decoded.id).select('_id username email');
       if (!user) {
-        return next(new Error('Authentication error: User no longer exists'));
+        return next(new Error('unauthorized'));
       }
 
       socket.user = {
@@ -53,9 +53,9 @@ const initChatSocket = (io) => {
       next();
     } catch (err) {
       if (err.name === 'TokenExpiredError') {
-        return next(new Error('Authentication error: Token expired'));
+        return next(new Error('unauthorized'));
       }
-      return next(new Error('Authentication error: Invalid token'));
+      return next(new Error('unauthorized'));
     }
   });
 
@@ -132,7 +132,7 @@ const initChatSocket = (io) => {
         // Check idempotency to prevent duplicate message saves
         if (idempotencyKey) {
           const existingMessage = await Message.findOne({ idempotencyKey, conversation: conversationId, sender: userId })
-            .populate('sender', 'username profilePicture isOnline')
+            .populate('sender', 'username profilePicture avatar isOnline')
             .populate('replyTo', 'text sender messageType media');
           if (existingMessage) {
             if (typeof callback === 'function') {
@@ -201,7 +201,7 @@ const initChatSocket = (io) => {
         }
 
         const populatedMessage = await Message.findById(newMessage._id)
-          .populate('sender', 'username profilePicture isOnline')
+          .populate('sender', 'username profilePicture avatar isOnline')
           .populate('replyTo', 'text sender messageType media');
 
         // Broadcast to all sockets in this conversation room
@@ -416,7 +416,7 @@ const initChatSocket = (io) => {
         await message.save();
 
         const populated = await Message.findById(message._id)
-          .populate('sender', 'username profilePicture isOnline')
+          .populate('sender', 'username profilePicture avatar isOnline')
           .populate('replyTo', 'text sender messageType media');
 
         io.to(message.conversation.toString()).emit('message:edited', populated);

@@ -1,0 +1,204 @@
+/* :root {
+  --accent-a: #14b8a6;
+  --accent-b: #2189e8;
+  --surface: #0d1524;
+}
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+button,
+input,
+textarea {
+  font: inherit;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 3px solid #2dd4bf;
+  outline-offset: 2px;
+}
+.profile-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.35rem 0.1rem 0.1rem;
+  color: #e5edf8;
+}
+.profile-modal__avatar {
+  margin: 0.4rem 0 0.15rem;
+}
+.profile-modal h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.profile-modal p {
+  margin-top: -0.45rem;
+  color: #94a3b8;
+  font-size: 0.82rem;
+}
+.profile-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 2.75rem;
+  border-radius: 0.9rem;
+  color: #d8e3f0;
+  background: #182439;
+  transition:
+    transform 0.18s ease,
+    background 0.18s ease;
+}
+.profile-action:hover {
+  background: #22334d;
+  transform: translateY(-1px);
+}
+.profile-action--accent {
+  color: #fff;
+  background: linear-gradient(115deg, var(--accent-a), var(--accent-b));
+  margin-top: 0.55rem;
+}
+.profile-action--accent:hover {
+  background: linear-gradient(115deg, #0d9488, #1976d2);
+}
+.profile-action--danger {
+  color: #fca5a5;
+}
+.profile-action:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+} */
+:root {
+  --accent-a: #0d9488;
+  --accent-b: #2189e8;
+  --focus: #0d9488;
+  --modal-text: #0f172a;
+  --modal-muted: #475569;
+  --action-bg: #e2e8f0;
+  --action-bg-hover: #cbd5e1;
+  --action-text: #1e293b;
+  --danger: #b91c1c;
+}
+
+.dark {
+  --focus: #2dd4bf;
+  --modal-text: #e5edf8;
+  --modal-muted: #94a3b8;
+  --action-bg: #182439;
+  --action-bg-hover: #22334d;
+  --action-text: #d8e3f0;
+  --danger: #fca5a5;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.profile-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.35rem 0.1rem 0.1rem;
+  color: var(--modal-text);
+}
+
+.profile-modal__avatar {
+  margin: 0.4rem 0 0.15rem;
+}
+
+.profile-modal h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.profile-modal p {
+  color: var(--modal-muted);
+  font-size: 0.82rem;
+}
+
+.profile-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: 0.9rem;
+  cursor: pointer;
+  color: var(--action-text);
+  background: var(--action-bg);
+  transition:
+    transform 0.18s ease,
+    background 0.18s ease;
+}
+
+.profile-action:hover {
+  background: var(--action-bg-hover);
+  transform: translateY(-1px);
+}
+
+.profile-action:active {
+  transform: scale(0.98);
+}
+
+.profile-action--accent {
+  margin-top: 0.55rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(115deg, var(--accent-a), var(--accent-b));
+}
+
+.profile-action--accent:hover {
+  background: linear-gradient(115deg, #0b7f75, #1976d2);
+}
+
+.profile-action--danger {
+  color: var(--danger);
+}
+
+.profile-action:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

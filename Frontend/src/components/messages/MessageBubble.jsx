@@ -171,7 +171,7 @@ export const MessageBubble = ({
       {/* Sender Avatar if incoming and enabled */}
       {!isOwn && showAvatar && (
         <Avatar
-          src={message.sender?.profilePicture?.url || message.sender?.avatar}
+          src={message.sender?.avatar || message.sender?.profilePicture?.url}
           name={senderName || 'User'}
           size="sm"
           className="mb-1"

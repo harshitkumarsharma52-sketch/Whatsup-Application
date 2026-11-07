@@ -27,6 +27,7 @@ export const SocketProvider = ({ children }) => {
     'conversation:new': new Set(),
     'conversation:unread': new Set(),
     'connect': new Set(),
+    'user:avatar': new Set(),
   });
 
   // Helper to subscribe to socket events from hooks
@@ -150,6 +151,12 @@ export const SocketProvider = ({ children }) => {
     };
     const handleConnect = () => listenersRef.current.connect.forEach((cb) => cb());
     const handleConnectError = async (error) => {
+      // The server uses this exact error for a token it has verified as bad.
+      // Timeouts, DNS failures and sleeping Render instances never reach here.
+      if (/^unauthorized$/i.test(error.message || '')) {
+        window.dispatchEvent(new CustomEvent('auth:session-expired'));
+        return;
+      }
       if (refreshingSocketAuthRef.current || !/auth|token|expired/i.test(error.message || '')) return;
       refreshingSocketAuthRef.current = true;
       try {
@@ -184,8 +191,14 @@ export const SocketProvider = ({ children }) => {
     currentSocket.on('group:invited', handleConversationNew);
     currentSocket.on('conversation:unread', forward('conversation:unread'));
     currentSocket.on('connect', handleConnect);
+    currentSocket.on('user:avatar', forward('user:avatar'));
     currentSocket.on('connect_error', handleConnectError);
     currentSocket.connect();
+
+    const reconnectWhenVisible = () => {
+      if (document.visibilityState === 'visible' && !currentSocket.connected) currentSocket.connect();
+    };
+    document.addEventListener('visibilitychange', reconnectWhenVisible);
 
     return () => {
       currentSocket.off('users:online', handleInitialOnlineUsers);
@@ -205,7 +218,9 @@ export const SocketProvider = ({ children }) => {
       currentSocket.off('group:invited', handleConversationNew);
       currentSocket.off('conversation:unread');
       currentSocket.off('connect', handleConnect);
+      currentSocket.off('user:avatar');
       currentSocket.off('connect_error', handleConnectError);
+      document.removeEventListener('visibilitychange', reconnectWhenVisible);
     };
   }, [isAuthenticated, userId, accessToken, refreshAuth]);
 

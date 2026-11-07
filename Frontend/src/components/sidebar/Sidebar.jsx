@@ -12,6 +12,7 @@ import ConversationList from './ConversationList';
 import NewChatModal from './NewChatModal';
 import Avatar from '../common/Avatar';
 import ThemeToggle from '../common/ThemeToggle';
+import ProfileModal from '../common/ProfileModal';
 import { useAuth } from '../../context/AuthContext';
 
 export const Sidebar = ({
@@ -26,6 +27,7 @@ export const Sidebar = ({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -38,12 +40,12 @@ export const Sidebar = ({
       <div className="h-16 px-4 bg-chat-header dark:bg-dark-header border-b border-gray-200 dark:border-gray-800 flex items-center justify-between transition-colors">
         {/* User Info / Profile Link */}
         <div
-          onClick={() => navigate('/profile')}
+          onClick={() => setIsProfileOpen(true)}
           className="flex items-center space-x-2.5 cursor-pointer group"
           title="View Profile"
         >
           <Avatar
-            src={user?.profilePicture?.url || user?.avatar}
+            src={user?.avatar || user?.profilePicture?.url}
             name={user?.username || 'Me'}
             size="md"
             className="group-hover:ring-2 ring-primary-500 transition-all"
@@ -74,7 +76,7 @@ export const Sidebar = ({
 
           <button
             type="button"
-            onClick={() => navigate('/profile')}
+            onClick={() => setIsProfileOpen(true)}
             className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-dark-input text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
             title="Settings"
             aria-label="Profile and Settings"
@@ -131,6 +133,7 @@ export const Sidebar = ({
         onClose={() => setIsNewChatOpen(false)}
         onConversationCreated={onConversationCreated}
       />
+      <ProfileModal open={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
     </aside>
   );
 };

@@ -59,7 +59,7 @@ const createOrGetPrivate = async (req, res, next) => {
       isGroup: false,
       participants: { $all: [currentUserId, recipientId], $size: 2 },
     })
-      .populate('participants', 'username profilePicture bio isOnline lastSeen')
+      .populate('participants', 'username profilePicture avatar bio isOnline lastSeen')
       .populate('lastMessage');
 
     if (conversation) {
@@ -83,7 +83,7 @@ const createOrGetPrivate = async (req, res, next) => {
     });
 
     conversation = await Conversation.findById(newConversation._id)
-      .populate('participants', 'username profilePicture bio isOnline lastSeen')
+      .populate('participants', 'username profilePicture avatar bio isOnline lastSeen')
       .populate('lastMessage');
 
     // Notify recipient via socket if connected
@@ -110,7 +110,7 @@ const getConversations = async (req, res, next) => {
     const conversations = await Conversation.find({
       participants: currentUserId,
     })
-      .populate('participants', 'username profilePicture bio isOnline lastSeen')
+      .populate('participants', 'username profilePicture avatar bio isOnline lastSeen')
       .populate({
         path: 'lastMessage',
         populate: [
@@ -148,7 +148,7 @@ const getConversationById = async (req, res, next) => {
     const currentUserId = req.user.id;
 
     const conversation = await Conversation.findById(id)
-      .populate('participants', 'username profilePicture bio isOnline lastSeen')
+      .populate('participants', 'username profilePicture avatar bio isOnline lastSeen')
       .populate({
         path: 'lastMessage',
         populate: { path: 'sender', select: 'username profilePicture' },

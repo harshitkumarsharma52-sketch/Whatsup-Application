@@ -55,7 +55,7 @@ export const ChatHeader = ({
 
   const avatarSrc = isGroup
     ? conversation.groupImage?.url || conversation.groupImage || conversation.avatar
-    : otherParticipant?.profilePicture?.url || otherParticipant?.avatar;
+    : otherParticipant?.avatar || otherParticipant?.profilePicture?.url;
 
   const isOnline = otherParticipant
     ? isUserOnline(otherParticipant._id || otherParticipant.id)

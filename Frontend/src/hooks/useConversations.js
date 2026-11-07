@@ -127,6 +127,16 @@ export const useConversations = (activeConversationId = null) => {
         })
       );
     });
+    const unsubscribeAvatar = subscribe('user:avatar', ({ userId, avatar }) => {
+      setConversations((prev) => prev.map((conversation) => ({
+        ...conversation,
+        participants: conversation.participants?.map((participant) =>
+          String(participant._id || participant.id) === String(userId)
+            ? { ...participant, avatar }
+            : participant
+        ),
+      })));
+    });
 
     return () => {
       unsubscribeConversation();
@@ -134,6 +144,7 @@ export const useConversations = (activeConversationId = null) => {
       unsubscribeNew();
       unsubscribeDelete();
       unsubscribeEdit();
+      unsubscribeAvatar();
     };
   }, [subscribe, activeConversationId, user, fetchConversations, conversations]);
 
