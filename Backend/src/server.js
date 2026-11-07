@@ -7,13 +7,9 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const socketService = require('./services/socket.service');
 const initChatSocket = require('./sockets/chat.socket');
+const { configuredOrigins: CLIENT_ORIGINS, isAllowedOrigin } = require('./config/cors');
 
 const PORT = process.env.PORT || 5000;
-const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS || process.env.CLIENT_URL || 'http://localhost:5173')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
 // Connect to Database
 connectDB();
 
@@ -23,7 +19,10 @@ const server = http.createServer(app);
 // Setup Socket.IO Server with strict CORS
 const io = new Server(server, {
   cors: {
-    origin: CLIENT_ORIGINS,
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) return callback(null, true);
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true,
     methods: ['GET', 'POST'],
   },

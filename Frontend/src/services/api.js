@@ -1,9 +1,11 @@
 import axios from 'axios';
+import { API_URL } from './apiUrl';
 
 let memoryToken = null;
 let isRefreshing = false;
 let failedQueue = [];
 let refreshPromise = null;
+const baseURL = API_URL;
 
 const processQueue = (error, token = null) => {
   failedQueue.forEach((prom) => {
@@ -39,8 +41,6 @@ export const refreshAccessToken = () => {
 const notifyAuthEvent = (name, detail) => {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(name, { detail }));
 };
-
-const baseURL = import.meta.env.VITE_API_URL || '/api';
 
 const api = axios.create({
   baseURL,

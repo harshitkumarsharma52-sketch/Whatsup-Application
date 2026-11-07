@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Lets a phone on the same Wi-Fi open the dev app via this computer's IP.
+    host: true,
     port: 5173,
     proxy: {
       '/api': {
